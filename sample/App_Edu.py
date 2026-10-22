@@ -941,7 +941,7 @@ Manage app → Settings → Secrets. When running locally, add them to your .env
                     st.rerun()
 
     for message in st.session_state.messages:
-        avatar = "🧑🏾‍🎓" if message["role"] == "user" else "🎓"
+        avatar = "🧑🏾" if message["role"] == "user" else "🎓"
         with st.chat_message(message["role"], avatar=avatar):
             st.markdown(message["content"])
 
@@ -960,7 +960,7 @@ Manage app → Settings → Secrets. When running locally, add them to your .env
             "content": question
         })
 
-        with st.chat_message("user", avatar="🧑🏾‍🎓"):
+        with st.chat_message("user", avatar="🧑🏾"):
             st.markdown(question)
 
         with st.chat_message("assistant", avatar="🎓"):
@@ -981,10 +981,10 @@ Manage app → Settings → Secrets. When running locally, add them to your .env
 
                 except Exception as e:
                     st.error(
-                        "Something went wrong while answering "
-                        "your question. Check the terminal for details."
+                        "Something went wrong while answering your question."
                     )
-                    print(f"RAG error: {e}")
+                    st.code(f"{type(e).__name__}: {e}")
+                    print(f"RAG error: {type(e).__name__}: {e}")
 
 
 # --------------------------------------------------
