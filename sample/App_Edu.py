@@ -220,6 +220,12 @@ box-shadow: 0 8px 20px rgba(250, 204, 21, 0.4); font-size: 1.05rem;
 }
 .stButton > button[kind="primary"]:hover {background: #FDE047; color: var(--ink);}
 .stButton > button p {font-weight: 600;}
+.stFormSubmitButton > button {border-radius: 12px; font-weight: 600; border: 1px solid var(--line); background: #FFFFFF; color: var(--ink);}
+.stFormSubmitButton > button[kind="primaryFormSubmit"] {background: var(--yellow); color: var(--ink); border: none; box-shadow: 0 8px 20px rgba(250, 204, 21, 0.4);}
+.stFormSubmitButton > button[kind="primaryFormSubmit"]:hover {background: #FDE047; color: var(--ink);}
+[data-testid="stChatInput"]:focus-within {border-color: var(--blue) !important; box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15) !important;}
+[data-testid="stChatInput"] > div {border-color: transparent !important;}
+[data-testid="stTextInput"] input:focus {border-color: var(--blue) !important;}
 
 .footer-note {font-size: 0.8rem !important; color: var(--muted) !important; text-align: center; margin-top: 2.4rem;}
 
@@ -238,15 +244,16 @@ margin-bottom: 0.4rem;
 }
 [data-testid="stChatMessage"] p, [data-testid="stChatMessage"] li {font-size: 0.93rem; line-height: 1.6;}
 /* User question: small blue bubble on the right */
-[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {
+[data-testid="stChatMessage"]:has([aria-label="Chat message from user"]) {
 background: linear-gradient(120deg, #1E3A8A, #2563EB); border: none;
 width: fit-content; max-width: 75%; margin-left: auto;
 padding: 0.7rem 1.1rem; border-radius: 18px 18px 4px 18px; margin-top: 0.6rem;
 box-shadow: 0 8px 20px rgba(37, 99, 235, 0.25);
 }
-[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) p {color: #FFFFFF !important; margin: 0; line-height: 1.5;}
-[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) [data-testid="stMarkdownContainer"] {margin-bottom: 0 !important;}
-[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) [data-testid="stChatMessageAvatarUser"] {display: none;}
+[data-testid="stChatMessage"]:has([aria-label="Chat message from user"]) p {color: #FFFFFF !important; margin: 0; line-height: 1.5;}
+[data-testid="stChatMessage"]:has([aria-label="Chat message from user"]) [data-testid="stMarkdownContainer"] {margin-bottom: 0 !important;}
+[data-testid="stChatMessage"]:has([aria-label="Chat message from user"]) > div[aria-hidden="true"] {display: none;}
+.heard {font-size: 0.75rem !important; color: #C9DAFB !important; margin-top: 0.2rem !important;}
 
 /* Answer dashboard */
 .dash-head {display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: 0.8rem;}
@@ -390,9 +397,29 @@ def load_rag_components(api_key, embedding_api_key):
 # --------------------------------------------------
 
 prompt = ChatPromptTemplate.from_template("""
-You are the Lagos Education Resource Assistant.
+You are ERGIT, a friendly assistant for Lagos State public school data.
 
 Answer the user's question using only the supplied context.
+
+The user's name: {name}
+
+Tone:
+- Be warm, friendly and professional, like a helpful teacher. Use plain
+  English and explain terms simply. Do not sound stiff or robotic.
+- You may use the user's name now and then, but not in every answer.
+- End with one short, friendly suggestion of what they could ask next.
+- If the user only greets you, says thanks or chats, reply warmly in one
+  or two sentences and suggest a question they could ask.
+
+Understanding the question:
+- The question may have spelling mistakes, or words misheard by voice
+  typing (for example "world of times" may mean "over time", "bad agree"
+  may mean "Badagry"). Work out the most likely meaning from the context
+  and answer that, instead of saying the information is not available.
+  If you had to guess, start with "I think you're asking about ...".
+- When the question is about one LGA, give the figure for all public
+  schools combined (Primary, JSS and SSS) first, then each school level
+  if it is in the context, and say which year the figures are for.
 
 Instructions:
 - Be clear, helpful, and concise.
@@ -401,7 +428,8 @@ Instructions:
 - Resource-gap scores are relative scores out of 100, not percentages
   of missing resources.
 - Do not invent facts, statistics, rankings, or citations.
-- If the context does not contain the answer, say so clearly.
+- If the context really does not contain the answer, say so kindly and
+  suggest a related question that the data can answer.
 - Distinguish between a resource-gap score and an official national
   education standard.
 - Do not claim that a source supports information it does not contain.
@@ -613,7 +641,7 @@ def parse_chart_json(raw):
             if item_standard:
                 row["standard"] = item_standard
             rows.append(row)
-        if len(rows) < 2:
+        if not rows:
             return None
         chart["data"] = rows
         chart["standard"] = to_number(chart.get("standard"))
@@ -639,7 +667,8 @@ school level against the UBE standards; give each item its own
 "standard", e.g. {{"label": "Students per toilet", "value": 54.1, "standard": 30}}).
 "standard" is 35 for students per teacher, 35 for students per classroom,
 30 for students per toilet, or null. Use only numbers from the answer.
-If the answer has fewer than 2 numbers that can be compared, reply: {{}}
+If the answer gives one figure and its standard, use "compare" with one item.
+If the answer has no figures that can be compared, reply: {{}}
 
 Question: {question}
 
@@ -665,12 +694,17 @@ def choose_chart_type(question, chart):
     with a few safety checks."""
     question_lower = question.lower()
     for word, kind in REQUESTED_TYPES:
-        if re.search(rf"\b{word}\b", question_lower):
+        if len(chart["data"]) > 1 and re.search(rf"\b{word}\b", question_lower):
             chart["type"] = kind
             chart["requested"] = True
             return chart
 
     n = len(chart["data"])
+    if n == 1:
+        # One figure: only worth a chart when it can be compared with a standard
+        if not (chart["data"][0].get("standard") or chart.get("standard")):
+            return None
+        chart["type"] = "compare"
     labels = " ".join(d["label"] for d in chart["data"])
     looks_like_years = len(re.findall(r"(19|20)\d\d", labels)) >= n
 
@@ -1030,7 +1064,7 @@ def transcribe(audio_file):
 # 7. Answer questions
 # --------------------------------------------------
 
-def answer_question(question, vector_db, chat_model, general_retriever):
+def answer_question(question, vector_db, chat_model, general_retriever, name=None):
     context, source_used = retrieve_context(
         question, vector_db, general_retriever
     )
@@ -1047,7 +1081,8 @@ def answer_question(question, vector_db, chat_model, general_retriever):
 
     answer = chain.invoke({
         "context": context,
-        "question": question
+        "question": question,
+        "name": name or "not given"
     })
 
     text, chart = split_chart(answer)
@@ -1057,6 +1092,33 @@ def answer_question(question, vector_db, chat_model, general_retriever):
         chart = choose_chart_type(question, chart)
 
     return text, source_used, chart
+
+
+# Fix voice questions that were misheard
+voice_fix_prompt = ChatPromptTemplate.from_template("""
+A user asked a question by voice about Lagos State public school data
+(LGAs, teachers, classrooms, toilets, UBE standards, school levels
+Primary/JSS/SSS, enrolment, years 2016/17 to 2019/20 and 2024/25).
+Speech-to-text may have misheard some words.
+
+Lagos LGAs: Agege, Ajeromi/Ifelodun, Alimosho, Amuwo Odofin, Apapa,
+Badagry, Epe, Eti-Osa, Ibeju/Lekki, Ifako/Ijaiye, Ikeja, Ikorodu, Kosofe,
+Lagos Island, Lagos Mainland, Mushin, Ojo, Oshodi/Isolo, Shomolu, Surulere.
+
+Rewrite it as the clear question the user most likely meant. Keep their
+meaning and any chart type they asked for. Reply with the question only.
+
+Heard: {heard}
+""")
+
+
+def understand_voice(heard, chat_model):
+    try:
+        fixed = (voice_fix_prompt | chat_model | StrOutputParser()).invoke({"heard": heard})
+        fixed = fixed.strip().strip('"').strip()
+        return fixed or heard
+    except Exception:
+        return heard
 
 
 # --------------------------------------------------
@@ -1311,7 +1373,10 @@ cover a question, ERGIT will say so.
 def render_home():
     topbar()
 
-    components.html(HERO_3D, height=470)
+    if hasattr(st, "iframe"):
+        st.iframe(HERO_3D, height=470)
+    else:
+        components.html(HERO_3D, height=470)
 
     html('<div class="gap"></div>')
 
@@ -1495,8 +1560,8 @@ def render_chat():
     html("""
 <div class="chat-hero">
 <div class="eyebrow">ERGIT Assistant</div>
-<h2 class="jakarta">Ask about Lagos schools 🎓</h2>
-<p>Teachers, classrooms, toilets and resource gaps across the 20 Lagos LGAs.</p>
+<h2 class="jakarta">Let's explore Lagos schools together 🎓</h2>
+<p>Ask me about teachers, classrooms, toilets and resource gaps across the 20 Lagos LGAs.</p>
 </div>
 <div style="height:1rem;"></div>
 """)
@@ -1526,6 +1591,40 @@ Manage app → Settings → Secrets. When running locally, add them to your .env
         }
     )
 
+    # Friendly welcome, always the first message
+    with st.chat_message("assistant", avatar="🎓"):
+        name = st.session_state.user_name
+        if name is None and not st.session_state.name_skipped:
+            st.markdown(
+                "Hi there 👋 I'm **ERGIT**, your friendly guide to Lagos public "
+                "school data.\n\nBefore we start, what should I call you?"
+            )
+            with st.form("name_form", clear_on_submit=True, border=False):
+                c1, c2, c3 = st.columns([3, 1.2, 1])
+                with c1:
+                    typed_name = st.text_input(
+                        "Your name", placeholder="Type your name...",
+                        label_visibility="collapsed"
+                    )
+                with c2:
+                    go = st.form_submit_button("Let's go 👋", type="primary", width="stretch")
+                with c3:
+                    skip = st.form_submit_button("Skip", width="stretch")
+            if go and typed_name.strip():
+                st.session_state.user_name = typed_name.strip().title()[:30]
+                st.rerun()
+            if skip:
+                st.session_state.name_skipped = True
+                st.rerun()
+        else:
+            hello = f"Nice to meet you, **{name}**! 😊" if name else "Welcome! 😊"
+            st.markdown(
+                f"{hello} I can tell you which Lagos LGAs need teachers, "
+                "classrooms or toilets most, and every answer with figures "
+                "comes with its own **live dashboard**.\n\n"
+                "Type a question, tap the 🎤 to speak, or pick one below."
+            )
+
     if not st.session_state.messages:
         html('<p class="eyebrow" style="margin-top:0.4rem;">Try a question</p>')
         q1, q2 = st.columns(2)
@@ -1544,9 +1643,13 @@ Manage app → Settings → Secrets. When running locally, add them to your .env
             else:
                 prefix = "🎤 " if message.get("voice") else ""
                 st.markdown(prefix + message["content"])
+                heard = message.get("heard")
+                if heard and heard.strip().lower() != message["content"].strip().lower():
+                    html(f'<p class="heard">I heard: “{heard}”</p>')
 
     # One input bar: type, or tap the mic beside the send arrow
     voice_question = None
+    voice_heard = None
     typed_question = None
     submission = st.chat_input(
         "Ask about education resources in Lagos State...",
@@ -1560,7 +1663,10 @@ Manage app → Settings → Secrets. When running locally, add them to your .env
         if recording is not None and not typed_question:
             with st.spinner("🎤 Listening to your question..."):
                 try:
-                    voice_question = transcribe(recording)
+                    heard = transcribe(recording)
+                    if heard:
+                        voice_heard = heard
+                        voice_question = understand_voice(heard, chat_model)
                 except Exception as e:
                     st.error("Sorry, the voice question could not be understood.")
                     st.code(f"{type(e).__name__}: {e}")
@@ -1574,20 +1680,23 @@ Manage app → Settings → Secrets. When running locally, add them to your .env
     )
 
     if question:
+        by_voice = bool(voice_question) and not typed_question
         st.session_state.messages.append({
             "role": "user",
             "content": question,
-            "voice": bool(voice_question) and not typed_question
+            "voice": by_voice,
+            "heard": voice_heard if by_voice else None
         })
 
         with st.chat_message("user", avatar="🧑🏾"):
-            st.markdown(("🎤 " if voice_question and not typed_question else "") + question)
+            st.markdown(("🎤 " if by_voice else "") + question)
 
         with st.chat_message("assistant", avatar="🎓"):
             with st.spinner("Searching the education documents..."):
                 try:
                     answer, source_used, chart = answer_question(
-                        question, vector_db, chat_model, general_retriever
+                        question, vector_db, chat_model, general_retriever,
+                        st.session_state.user_name
                     )
 
                     st.session_state.messages.append({
@@ -1621,8 +1730,11 @@ if "page" not in st.session_state:
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-if "mic_key" not in st.session_state:
-    st.session_state.mic_key = 0
+if "user_name" not in st.session_state:
+    st.session_state.user_name = None
+
+if "name_skipped" not in st.session_state:
+    st.session_state.name_skipped = False
 
 render_sidebar()
 
