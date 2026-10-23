@@ -253,6 +253,10 @@ box-shadow: 0 8px 20px rgba(37, 99, 235, 0.25);
 [data-testid="stChatMessage"]:has([aria-label="Chat message from user"]) p {color: #FFFFFF !important; margin: 0; line-height: 1.5;}
 [data-testid="stChatMessage"]:has([aria-label="Chat message from user"]) [data-testid="stMarkdownContainer"] {margin-bottom: 0 !important;}
 [data-testid="stChatMessage"]:has([aria-label="Chat message from user"]) > div[aria-hidden="true"] {display: none;}
+.ver-count {font-size: 0.8rem; color: var(--muted); font-weight: 600; padding: 0 0.1rem; line-height: 2.2;}
+[class*="st-key-actions_"] {margin-top: -0.3rem; margin-bottom: 0.2rem;}
+[class*="st-key-actions_"] button {font-size: 0.82rem !important; color: var(--muted) !important; padding: 0.15rem 0.5rem !important; min-height: 0 !important; border-radius: 8px !important;}
+[class*="st-key-actions_"] button:hover {color: var(--blue) !important; background: #EEF4FF !important;}
 .heard {font-size: 0.75rem !important; color: #C9DAFB !important; margin-top: 0.2rem !important;}
 
 /* Answer dashboard */
@@ -599,7 +603,7 @@ REQUESTED_TYPES = [
     ("pie", "pie"), ("donut", "pie"), ("doughnut", "pie"),
     ("line", "line"), ("trend", "line"),
     ("column", "column"), ("vertical", "column"),
-    ("lollipop", "lollipop"),
+    ("lollipop", "lollipop"), ("dot", "lollipop"), ("dots", "lollipop"),
     ("bar", "bar"),
 ]
 
@@ -651,6 +655,22 @@ def parse_chart_json(raw):
         return chart
     except Exception:
         return None
+
+
+# Used when the main answer comes back empty
+simple_prompt = ChatPromptTemplate.from_template("""
+You are ERGIT, a friendly assistant for Lagos State public school data.
+The user's name: {name}
+Using only the context, answer the question in 3 to 6 friendly, clear
+sentences with the key figures and years. If the question is unclear, answer
+the most likely meaning. Do not add any chart or code.
+
+Context:
+{context}
+
+Question:
+{question}
+""")
 
 
 # Used when the main answer has figures but no dashboard block
@@ -1086,6 +1106,21 @@ def answer_question(question, vector_db, chat_model, general_retriever, name=Non
     })
 
     text, chart = split_chart(answer)
+
+    if not text.strip():
+        # The AI sent no words: ask again, simply, without the dashboard part
+        plain = (simple_prompt | chat_model | StrOutputParser()).invoke({
+            "context": context, "question": question, "name": name or "not given"
+        })
+        text, extra_chart = split_chart(plain)
+        chart = chart or extra_chart
+    if not text.strip():
+        text = (chart or {}).get("headline") or (
+            "Sorry, I couldn't put that answer together 😅. Could you ask it "
+            "in a shorter way? For example: *How did the student-teacher "
+            "ratio change from 2016/17 to 2019/20?*"
+        )
+
     if not chart:
         chart = make_chart(question, text, chat_model)
     if chart:
@@ -1105,8 +1140,11 @@ Lagos LGAs: Agege, Ajeromi/Ifelodun, Alimosho, Amuwo Odofin, Apapa,
 Badagry, Epe, Eti-Osa, Ibeju/Lekki, Ifako/Ijaiye, Ikeja, Ikorodu, Kosofe,
 Lagos Island, Lagos Mainland, Mushin, Ojo, Oshodi/Isolo, Shomolu, Surulere.
 
-Rewrite it as the clear question the user most likely meant. Keep their
-meaning and any chart type they asked for. Reply with the question only.
+Rewrite it as the clear question the user most likely meant. Fix only the
+misheard words. Keep it short, about as long as what was heard, and do NOT
+add topics, lists or details the user did not say. Keep any chart type
+they asked for ("do not chart" or "dot chart" means a dot chart).
+Reply with the question only.
 
 Heard: {heard}
 """)
@@ -1552,9 +1590,10 @@ def render_chat():
             st.session_state.page = "home"
             st.rerun()
     with nav_right:
-        if st.session_state.messages:
+        if st.session_state.turns:
             if st.button("🧹 Clear chat", key="clear_chat"):
-                st.session_state.messages = []
+                st.session_state.turns = []
+                st.session_state.editing = None
                 st.rerun()
 
     html("""
@@ -1625,7 +1664,7 @@ Manage app → Settings → Secrets. When running locally, add them to your .env
                 "Type a question, tap the 🎤 to speak, or pick one below."
             )
 
-    if not st.session_state.messages:
+    if not st.session_state.turns:
         html('<p class="eyebrow" style="margin-top:0.4rem;">Try a question</p>')
         q1, q2 = st.columns(2)
         for i, (icon, sample) in enumerate(SAMPLE_QUESTIONS):
@@ -1635,17 +1674,9 @@ Manage app → Settings → Secrets. When running locally, add them to your .env
                     st.session_state.pending_question = sample
                     st.rerun()
 
-    for index, message in enumerate(st.session_state.messages):
-        avatar = "🧑🏾" if message["role"] == "user" else "🎓"
-        with st.chat_message(message["role"], avatar=avatar):
-            if message["role"] == "assistant":
-                show_assistant_message(message, index)
-            else:
-                prefix = "🎤 " if message.get("voice") else ""
-                st.markdown(prefix + message["content"])
-                heard = message.get("heard")
-                if heard and heard.strip().lower() != message["content"].strip().lower():
-                    html(f'<p class="heard">I heard: “{heard}”</p>')
+    # Each turn = one question with all its versions (retries and edits)
+    for t_index, turn in enumerate(st.session_state.turns):
+        render_turn(t_index, turn, vector_db, chat_model, general_retriever)
 
     # One input bar: type, or tap the mic beside the send arrow
     voice_question = None
@@ -1681,43 +1712,108 @@ Manage app → Settings → Secrets. When running locally, add them to your .env
 
     if question:
         by_voice = bool(voice_question) and not typed_question
-        st.session_state.messages.append({
-            "role": "user",
-            "content": question,
-            "voice": by_voice,
-            "heard": voice_heard if by_voice else None
+        st.session_state.turns.append({
+            "versions": [new_version(question, by_voice, voice_heard if by_voice else None)],
+            "current": 0
         })
+        st.rerun()  # the new turn is answered in place on the next run
 
+
+# --------------------------------------------------
+# 11b. Retry, edit and versions for each question
+# --------------------------------------------------
+
+def new_version(question, voice=False, heard=None):
+    return {"question": question, "voice": voice, "heard": heard, "answer": None}
+
+
+def retry_turn(t_index):
+    turn = st.session_state.turns[t_index]
+    old = turn["versions"][turn["current"]]
+    turn["versions"].append(new_version(old["question"], old["voice"], old["heard"]))
+    turn["current"] = len(turn["versions"]) - 1
+
+
+def start_edit(t_index):
+    st.session_state.editing = t_index
+
+
+def move_version(t_index, step):
+    turn = st.session_state.turns[t_index]
+    turn["current"] = max(0, min(len(turn["versions"]) - 1, turn["current"] + step))
+
+
+def render_turn(t_index, turn, vector_db, chat_model, general_retriever):
+    version = turn["versions"][turn["current"]]
+    total = len(turn["versions"])
+
+    # ---- the question (or the edit box) ----
+    if st.session_state.editing == t_index:
         with st.chat_message("user", avatar="🧑🏾"):
-            st.markdown(("🎤 " if by_voice else "") + question)
+            with st.form(f"edit_form_{t_index}", border=False):
+                new_text = st.text_area(
+                    "Edit your question", value=version["question"],
+                    label_visibility="collapsed", height=90
+                )
+                b1, b2, _ = st.columns([1, 1, 3])
+                with b1:
+                    send = st.form_submit_button("Send", icon=":material/send:", type="primary", width="stretch")
+                with b2:
+                    cancel = st.form_submit_button("Cancel", width="stretch")
+        if send and new_text.strip():
+            turn["versions"].append(new_version(new_text.strip()))
+            turn["current"] = len(turn["versions"]) - 1
+            st.session_state.editing = None
+            st.rerun()
+        if cancel:
+            st.session_state.editing = None
+            st.rerun()
+    else:
+        with st.chat_message("user", avatar="🧑🏾"):
+            st.markdown(("🎤 " if version["voice"] else "") + version["question"])
+            heard = version.get("heard")
+            if heard and heard.strip().lower() != version["question"].strip().lower():
+                html(f'<p class="heard">I heard: “{heard}”</p>')
 
-        with st.chat_message("assistant", avatar="🎓"):
+        # ---- small action row under the question ----
+        busy = version["answer"] is None
+        with st.container(horizontal=True, horizontal_alignment="right",
+                          gap="small", key=f"actions_{t_index}"):
+            if total > 1:
+                st.button("", icon=":material/chevron_left:", key=f"prev_{t_index}", type="tertiary",
+                          help="Previous version", disabled=turn["current"] == 0 or busy,
+                          on_click=move_version, args=(t_index, -1))
+                html(f'<span class="ver-count">{turn["current"] + 1} / {total}</span>')
+                st.button("", icon=":material/chevron_right:", key=f"next_{t_index}", type="tertiary",
+                          help="Next version", disabled=turn["current"] == total - 1 or busy,
+                          on_click=move_version, args=(t_index, 1))
+            st.button("Retry", icon=":material/refresh:", key=f"retry_{t_index}", type="tertiary",
+                      help="Ask this question again", disabled=busy,
+                      on_click=retry_turn, args=(t_index,))
+            st.button("Edit", icon=":material/edit_note:", key=f"edit_{t_index}", type="tertiary",
+                      help="Change or add to this question", disabled=busy,
+                      on_click=start_edit, args=(t_index,))
+
+    # ---- the answer (worked out here, in place, the first time) ----
+    with st.chat_message("assistant", avatar="🎓"):
+        if version["answer"] is None:
             with st.spinner("Searching the education documents..."):
                 try:
                     answer, source_used, chart = answer_question(
-                        question, vector_db, chat_model, general_retriever,
-                        st.session_state.user_name
+                        version["question"], vector_db, chat_model,
+                        general_retriever, st.session_state.user_name
                     )
-
-                    st.session_state.messages.append({
-                        "role": "assistant",
-                        "content": answer,
-                        "source": source_used,
-                        "chart": chart
-                    })
-                    answered = True
-
+                    version["answer"] = {"content": answer, "source": source_used, "chart": chart}
                 except Exception as e:
-                    answered = False
-                    st.error(
-                        "Something went wrong while answering your question."
-                    )
-                    st.code(f"{type(e).__name__}: {e}")
                     print(f"RAG error: {type(e).__name__}: {e}")
-
-        # Redraw the page so the new answer shows with its dashboard
-        if answered:
+                    version["answer"] = {"error": f"{type(e).__name__}: {e}"}
             st.rerun()
+
+        if "error" in version["answer"]:
+            st.error("Something went wrong while answering. Tap Retry to try again.")
+            st.code(version["answer"]["error"])
+        else:
+            show_assistant_message(version["answer"], t_index)
 
 
 # --------------------------------------------------
@@ -1727,8 +1823,11 @@ Manage app → Settings → Secrets. When running locally, add them to your .env
 if "page" not in st.session_state:
     st.session_state.page = "home"
 
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+if "turns" not in st.session_state:
+    st.session_state.turns = []
+
+if "editing" not in st.session_state:
+    st.session_state.editing = None
 
 if "user_name" not in st.session_state:
     st.session_state.user_name = None
