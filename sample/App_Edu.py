@@ -432,12 +432,18 @@ Answer:
 # 6. Route questions to the appropriate source
 # --------------------------------------------------
 
-LGA_NAMES = [
-    "Agege", "Ajeromi", "Alimosho", "Amuwo", "Apapa", "Badagry", "Epe",
-    "Eti-Osa", "Eti Osa", "Ibeju", "Ifako", "Ikeja", "Ikorodu", "Kosofe",
-    "Lagos Island", "Lagos Mainland", "Mushin", "Ojo", "Oshodi",
-    "Shomolu", "Somolu", "Surulere"
-]
+# Words a user may type -> the LGA name as written in the PDF
+LGA_NAMES = {
+    "agege": "Agege", "ajeromi": "Ajeromi", "ifelodun": "Ajeromi",
+    "alimosho": "Alimosho", "amuwo": "Amuwo", "apapa": "Apapa",
+    "badagry": "Badagry", "epe": "Epe", "eti-osa": "Eti-Osa",
+    "eti osa": "Eti-Osa", "ibeju": "Ibeju", "lekki": "Ibeju",
+    "ifako": "Ifako", "ikeja": "Ikeja", "ikorodu": "Ikorodu",
+    "kosofe": "Kosofe", "lagos island": "Lagos Island",
+    "lagos mainland": "Lagos Mainland", "mushin": "Mushin", "ojo": "Ojo",
+    "oshodi": "Oshodi", "isolo": "Oshodi", "shomolu": "Shomolu",
+    "somolu": "Shomolu", "surulere": "Surulere"
+}
 
 
 def retrieve_context(question, vector_db, general_retriever):
@@ -496,27 +502,28 @@ def retrieve_context(question, vector_db, general_retriever):
     else:
         docs = general_retriever.invoke(question)
 
-        # Extra searches, so LGA and school-level questions find
-        # the exact section they need.
-        extra_queries = [
-            f"{lga} LGA students per teacher classroom toilet"
-            for lga in LGA_NAMES if lga.lower() in question_lower
-        ]
+        # Extra searches, so LGA and school-level questions always
+        # find the exact section that contains the right words.
+        pdf_filter = {"source": "Lagos_Education_RAG_Knowledge_Base.pdf"}
+        extra = []
+
+        for typed, name in LGA_NAMES.items():
+            if re.search(rf"\b{re.escape(typed)}\b", question_lower):
+                extra.append((f"{name} LGA students per teacher classroom toilet", name))
+
         if any(w in question_lower for w in
                ["level", "primary", "jss", "sss", "junior", "senior"]):
-            extra_queries.append(
-                "Primary JSS SSS school level average students per "
-                "teacher classroom toilet"
-            )
+            extra.append(("school level average students per teacher classroom toilet",
+                          "across Lagos averaged"))
 
         seen = {doc.page_content for doc in docs}
-        for query in extra_queries:
+        for query, must_contain in dict.fromkeys(extra):
             for doc in vector_db.similarity_search(
-                query, k=3,
-                filter={"source": "Lagos_Education_RAG_Knowledge_Base.pdf"}
+                query, k=4, filter=pdf_filter,
+                where_document={"$contains": must_contain}
             ):
                 if doc.page_content not in seen:
-                    docs.append(doc)
+                    docs.insert(0, doc)
                     seen.add(doc.page_content)
 
         source_used = "Education PDF"
