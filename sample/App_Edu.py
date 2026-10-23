@@ -260,7 +260,6 @@ box-shadow: 0 8px 20px rgba(37, 99, 235, 0.25);
 .chg.down {background: #D1FAE5; color: #047857;}
 .lb-note {font-size: 0.76rem; color: var(--muted); margin: 0.15rem 0 0.2rem 0;}
 .swatch {width: 12px; height: 12px; border-radius: 4px; display: inline-block;}
-[data-testid="stAudioInput"] {background: #FFFFFF; border: 1px dashed #B9C9E6; border-radius: 16px; padding: 0.5rem 0.8rem;}
 .dash-divider {height: 1px; background: var(--line); margin: 0.9rem 0 1rem 0;}
 .kpi-row {display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.7rem; margin-bottom: 0.9rem;}
 .kpi {display: flex; gap: 0.65rem; align-items: center; background: #F8FAFF; border: 1px solid var(--line); border-radius: 14px; padding: 0.7rem 0.8rem;}
@@ -595,7 +594,15 @@ def split_chart(answer):
         return answer.strip(), None
 
     text = (answer[:match.start()] + answer[match.end():]).strip()
-    raw = match.group(1).strip().strip("`").replace("json", "", 1).strip()
+    return text, parse_chart_json(match.group(1))
+
+
+def parse_chart_json(raw):
+    """Read the dashboard data, even if the AI wrapped it in extra text."""
+    start, end = raw.find("{"), raw.rfind("}")
+    if start == -1 or end == -1:
+        return None
+    raw = re.sub(r",\s*([}\]])", r"\1", raw[start:end + 1])  # remove trailing commas
 
     try:
         chart = json.loads(raw)
@@ -607,15 +614,50 @@ def split_chart(answer):
                 row["standard"] = item_standard
             rows.append(row)
         if len(rows) < 2:
-            return text, None
+            return None
         chart["data"] = rows
         chart["standard"] = to_number(chart.get("standard"))
         chart["type"] = str(chart.get("type", "bar")).lower()
         if chart["type"] not in CHART_TYPES:
             chart["type"] = "bar"
-        return text, chart
+        return chart
     except Exception:
-        return text, None
+        return None
+
+
+# Used when the main answer has figures but no dashboard block
+chart_prompt = ChatPromptTemplate.from_template("""
+Turn the figures in this answer into dashboard data.
+Reply with ONE JSON object only, no other words, in this format:
+
+{{"type": "bar", "title": "Short chart title", "headline": "One-sentence key finding", "label_name": "LGA", "value_name": "What the number means", "standard": 30, "data": [{{"label": "Badagry", "value": 62.6}}, {{"label": "Ojo", "value": 55.1}}]}}
+
+Choose "type": "bar" (ranking 7 or more items), "lollipop" (short ranking),
+"column" (2 to 6 items such as school levels), "pie" (shares of a total,
+6 parts or fewer), "line" (change over years), or "compare" (one LGA or
+school level against the UBE standards; give each item its own
+"standard", e.g. {{"label": "Students per toilet", "value": 54.1, "standard": 30}}).
+"standard" is 35 for students per teacher, 35 for students per classroom,
+30 for students per toilet, or null. Use only numbers from the answer.
+If the answer has fewer than 2 numbers that can be compared, reply: {{}}
+
+Question: {question}
+
+Answer: {answer}
+""")
+
+
+def make_chart(question, answer_text, chat_model):
+    if len(re.findall(r"\d+(?:\.\d+)?", answer_text)) < 2:
+        return None
+    try:
+        raw = (chart_prompt | chat_model | StrOutputParser()).invoke(
+            {"question": question, "answer": answer_text}
+        )
+        return parse_chart_json(raw)
+    except Exception as e:
+        print(f"Chart error: {type(e).__name__}: {e}")
+        return None
 
 
 def choose_chart_type(question, chart):
@@ -1009,6 +1051,8 @@ def answer_question(question, vector_db, chat_model, general_retriever):
     })
 
     text, chart = split_chart(answer)
+    if not chart:
+        chart = make_chart(question, text, chat_model)
     if chart:
         chart = choose_chart_type(question, chart)
 
@@ -1501,26 +1545,27 @@ Manage app → Settings → Secrets. When running locally, add them to your .env
                 prefix = "🎤 " if message.get("voice") else ""
                 st.markdown(prefix + message["content"])
 
-    # Voice question: record, then ERGIT types it out and answers
+    # One input bar: type, or tap the mic beside the send arrow
     voice_question = None
-    recording = st.audio_input(
-        "🎤 Or ask with your voice: tap the mic, speak, then tap stop",
-        key=f"mic_{st.session_state.mic_key}"
+    typed_question = None
+    submission = st.chat_input(
+        "Ask about education resources in Lagos State...",
+        accept_audio=True,
+        key="ergit_chat"
     )
-    if recording is not None:
-        with st.spinner("Listening to your question..."):
-            try:
-                voice_question = transcribe(recording)
-            except Exception as e:
-                st.error("Sorry, the voice question could not be understood.")
-                st.code(f"{type(e).__name__}: {e}")
-        st.session_state.mic_key += 1  # clears the recorder for the next question
-        if not voice_question:
-            st.warning("No words were heard. Please try again, a little closer to the mic.")
 
-    typed_question = st.chat_input(
-        "Ask about education resources in Lagos State..."
-    )
+    if submission:
+        typed_question = (submission.text or "").strip() or None
+        recording = submission.get("audio") if hasattr(submission, "get") else None
+        if recording is not None and not typed_question:
+            with st.spinner("🎤 Listening to your question..."):
+                try:
+                    voice_question = transcribe(recording)
+                except Exception as e:
+                    st.error("Sorry, the voice question could not be understood.")
+                    st.code(f"{type(e).__name__}: {e}")
+            if not voice_question:
+                st.warning("No words were heard. Please try again, a little closer to the mic.")
 
     question = (
         typed_question
@@ -1561,7 +1606,7 @@ Manage app → Settings → Secrets. When running locally, add them to your .env
                     st.code(f"{type(e).__name__}: {e}")
                     print(f"RAG error: {type(e).__name__}: {e}")
 
-        # Redraw the page so the new answer shows with its Answer / Chart tabs
+        # Redraw the page so the new answer shows with its dashboard
         if answered:
             st.rerun()
 
