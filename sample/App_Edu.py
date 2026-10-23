@@ -10,6 +10,7 @@ import streamlit.components.v1 as components
 from dotenv import load_dotenv
 from langchain_chroma import Chroma
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from openai import OpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
@@ -252,6 +253,14 @@ box-shadow: 0 8px 20px rgba(37, 99, 235, 0.25);
 .dash-eyebrow {font-size: 0.72rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--blue);}
 .dash-headline {font-family: 'Plus Jakarta Sans', sans-serif; font-weight: 700; font-size: 1.15rem; color: var(--ink); margin-top: 0.25rem; line-height: 1.35;}
 .dash-head .source-tag {margin-top: 0; white-space: nowrap;}
+.chart-chip {display: inline-block; font-size: 0.78rem; font-weight: 600; color: var(--navy); background: #EEF4FF; border: 1px solid #C9DAFB; border-radius: 999px; padding: 0.25rem 0.75rem; margin-bottom: 0.8rem;}
+.chart-chip span {color: var(--muted); font-weight: 500;}
+.chg {font-family: 'Plus Jakarta Sans', sans-serif; font-weight: 700; border-radius: 8px; padding: 0.1rem 0.5rem; font-size: 0.85rem;}
+.chg.up {background: #FEE2E2; color: #B42318;}
+.chg.down {background: #D1FAE5; color: #047857;}
+.lb-note {font-size: 0.76rem; color: var(--muted); margin: 0.15rem 0 0.2rem 0;}
+.swatch {width: 12px; height: 12px; border-radius: 4px; display: inline-block;}
+[data-testid="stAudioInput"] {background: #FFFFFF; border: 1px dashed #B9C9E6; border-radius: 16px; padding: 0.5rem 0.8rem;}
 .dash-divider {height: 1px; background: var(--line); margin: 0.9rem 0 1rem 0;}
 .kpi-row {display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.7rem; margin-bottom: 0.9rem;}
 .kpi {display: flex; gap: 0.65rem; align-items: center; background: #F8FAFF; border: 1px solid var(--line); border-radius: 14px; padding: 0.7rem 0.8rem;}
@@ -400,16 +409,26 @@ Instructions:
 
 Dashboard instructions:
 - Keep the written answer short: 2 to 4 sentences, then a table only if
-  it really helps.
-- If your answer compares numbers (for example LGAs, school levels or
-  years), add ONE dashboard block at the very end, in exactly this format:
+  it really helps. If the user asks for a summary, give a short summary.
+- If your answer contains numbers that can be compared, add ONE
+  dashboard block at the very end, in exactly this format:
 
 <chart>
-{{"type": "bar", "title": "Short chart title", "headline": "One-sentence key finding", "label_name": "LGA", "value_name": "What the number means", "standard": 30, "data": [{{"label": "Badagry", "value": 2.0}}, {{"label": "Ojo", "value": 1.85}}]}}
+{{"type": "bar", "title": "Short chart title", "headline": "One-sentence key finding", "label_name": "LGA", "value_name": "What the number means", "standard": 30, "data": [{{"label": "Badagry", "value": 62.6}}, {{"label": "Ojo", "value": 55.1}}]}}
 </chart>
 
-- "type": "bar" for rankings and comparisons, "pie" only for shares of a
-  total with 6 parts or fewer, "line" for changes over years.
+- Choose the "type" that best fits the question:
+  * "bar": ranking many LGAs (7 or more items).
+  * "lollipop": a short ranking of scores, such as a top five.
+  * "column": comparing 2 to 6 items, such as school levels or a few LGAs.
+  * "pie": shares of a total with 6 parts or fewer, such as learners by
+    school level or male and female learners.
+  * "line": change over years.
+  * "compare": one LGA or school level against the UBE standards for
+    teachers, classrooms and toilets. Give each item its own standard,
+    for example {{"label": "Students per toilet", "value": 62.6, "standard": 30}}.
+- If the user asks for a chart type (for example a pie chart or a line
+  chart), use that type.
 - "standard": the UBE standard the values are compared with (35 for
   students per teacher, 35 for students per classroom, 30 for students
   per toilet). Use null if the values are not ratios.
@@ -536,11 +555,41 @@ def retrieve_context(question, vector_db, general_retriever):
 
 
 # --------------------------------------------------
-# 6b. Live charts from the answer
+# 6b. Live dashboard from the answer
 # --------------------------------------------------
 
+CHART_TYPES = {
+    "bar": ("📊", "Ranking bar chart"),
+    "column": ("📶", "Column chart"),
+    "lollipop": ("🍭", "Lollipop ranking"),
+    "pie": ("🍩", "Donut chart"),
+    "line": ("📈", "Trend line"),
+    "compare": ("🎯", "Actual vs UBE standard"),
+}
+
+# Words a user may type to ask for a chart type
+REQUESTED_TYPES = [
+    ("pie", "pie"), ("donut", "pie"), ("doughnut", "pie"),
+    ("line", "line"), ("trend", "line"),
+    ("column", "column"), ("vertical", "column"),
+    ("lollipop", "lollipop"),
+    ("bar", "bar"),
+]
+
+PALETTE = ["#2563EB", "#FACC15", "#10B981", "#F97066",
+           "#8B5CF6", "#0EA5E9", "#F59E0B", "#1E3A8A"]
+
+
+def to_number(value):
+    try:
+        number = float(value)
+        return number if number else None
+    except (TypeError, ValueError):
+        return None
+
+
 def split_chart(answer):
-    """Separate the written answer from the chart data."""
+    """Separate the written answer from the dashboard data."""
     match = re.search(r"<chart>(.*?)</chart>", answer, re.S)
     if not match:
         return answer.strip(), None
@@ -550,53 +599,111 @@ def split_chart(answer):
 
     try:
         chart = json.loads(raw)
-        rows = [
-            {"label": str(d["label"]), "value": float(d["value"])}
-            for d in chart.get("data", [])
-        ]
+        rows = []
+        for d in chart.get("data", []):
+            row = {"label": str(d["label"]), "value": float(d["value"])}
+            item_standard = to_number(d.get("standard"))
+            if item_standard:
+                row["standard"] = item_standard
+            rows.append(row)
         if len(rows) < 2:
             return text, None
         chart["data"] = rows
-        try:
-            chart["standard"] = float(chart.get("standard")) or None
-        except (TypeError, ValueError):
-            chart["standard"] = None
+        chart["standard"] = to_number(chart.get("standard"))
+        chart["type"] = str(chart.get("type", "bar")).lower()
+        if chart["type"] not in CHART_TYPES:
+            chart["type"] = "bar"
         return text, chart
     except Exception:
         return text, None
 
 
+def choose_chart_type(question, chart):
+    """Respect the user's choice of chart; otherwise keep the AI's choice,
+    with a few safety checks."""
+    question_lower = question.lower()
+    for word, kind in REQUESTED_TYPES:
+        if re.search(rf"\b{word}\b", question_lower):
+            chart["type"] = kind
+            chart["requested"] = True
+            return chart
+
+    n = len(chart["data"])
+    labels = " ".join(d["label"] for d in chart["data"])
+    looks_like_years = len(re.findall(r"(19|20)\d\d", labels)) >= n
+
+    if looks_like_years and chart["type"] not in ("line", "column"):
+        chart["type"] = "line"
+    if chart["type"] == "pie" and n > 6:
+        chart["type"] = "bar"
+    if chart["type"] == "compare":
+        for d in chart["data"]:
+            if "standard" not in d and chart.get("standard"):
+                d["standard"] = chart["standard"]
+        if not all("standard" in d for d in chart["data"]):
+            chart["type"] = "column"
+    return chart
+
+
 def fmt(value):
-    return f"{value:,.0f}" if abs(value) >= 1000 else f"{value:,.2f}".rstrip("0").rstrip(".")
+    if abs(value) >= 1000:
+        return f"{value:,.0f}"
+    return f"{value:,.2f}".rstrip("0").rstrip(".")
+
+
+def tooltip_for(chart):
+    return [alt.Tooltip("label:N", title=chart.get("label_name", "Item")),
+            alt.Tooltip("value:Q", title=chart.get("value_name", "Value"), format=",.2f")]
+
+
+def status_colour(df, standard):
+    df["status"] = df["value"].apply(
+        lambda v: "Above standard" if v > standard else "Within standard"
+    )
+    return alt.Color(
+        "status:N", title=None,
+        scale=alt.Scale(domain=["Above standard", "Within standard"],
+                        range=["#F97066", "#10B981"]),
+        legend=alt.Legend(orient="top")
+    )
 
 
 def draw_chart(chart):
     df = pd.DataFrame(chart["data"])
-    value_name = chart.get("value_name", "Value")
-    label_name = chart.get("label_name", "Item")
+    kind = chart["type"]
     standard = chart.get("standard")
-    kind = str(chart.get("type", "bar")).lower()
-    tooltip = [alt.Tooltip("label:N", title=label_name),
-               alt.Tooltip("value:Q", title=value_name, format=",.2f")]
+    value_name = chart.get("value_name", "Value")
+    tooltip = tooltip_for(chart)
+    order = df.sort_values("value", ascending=False)["label"].tolist()
 
-    if kind == "pie" and len(df) <= 6:
-        palette = ["#2563EB", "#FACC15", "#10B981", "#F97066", "#8B5CF6", "#0EA5E9"]
-        chart_obj = alt.Chart(df).mark_arc(
-            innerRadius=70, outerRadius=120, stroke="#FFFFFF", strokeWidth=3
-        ).encode(
+    if kind == "pie":
+        total = df["value"].sum()
+        df["share"] = df["value"] / total * 100
+        df["share_txt"] = df["share"].round().astype(int).astype(str) + "%"
+        base = alt.Chart(df).encode(
             theta=alt.Theta("value:Q", stack=True),
-            color=alt.Color("label:N", title=None,
-                            scale=alt.Scale(range=palette),
+            color=alt.Color("label:N", title=None, sort=order,
+                            scale=alt.Scale(range=PALETTE),
                             legend=alt.Legend(orient="bottom")),
-            tooltip=tooltip
-        ).properties(height=300)
+            tooltip=tooltip + [alt.Tooltip("share:Q", title="Share %", format=".1f")]
+        )
+        donut = base.mark_arc(innerRadius=78, outerRadius=128,
+                              stroke="#FFFFFF", strokeWidth=3, cornerRadius=4)
+        labels = base.mark_text(radius=148, fontWeight=700, color="#0F1E4A").encode(
+            text="share_txt:N"
+        )
+        centre = alt.Chart(pd.DataFrame({"t": [fmt(total)]})).mark_text(
+            fontSize=24, fontWeight=800, color="#0F1E4A", dy=-8
+        ).encode(text="t:N")
+        centre_sub = alt.Chart(pd.DataFrame({"t": ["Total"]})).mark_text(
+            fontSize=12, color="#5B6680", dy=16
+        ).encode(text="t:N")
+        chart_obj = (donut + labels + centre + centre_sub).properties(height=340)
 
     elif kind == "line":
         base = alt.Chart(df).encode(
-            x=alt.X("label:N", title=None, sort=None,
-                    axis=alt.Axis(labelAngle=0)),
-            y=alt.Y("value:Q", title=value_name,
-                    scale=alt.Scale(zero=False)),
+            x=alt.X("label:N", title=None, sort=None, axis=alt.Axis(labelAngle=0)),
+            y=alt.Y("value:Q", title=value_name, scale=alt.Scale(zero=False)),
             tooltip=tooltip
         )
         area = base.mark_area(
@@ -604,101 +711,216 @@ def draw_chart(chart):
                 gradient="linear",
                 stops=[alt.GradientStop(color="rgba(37,99,235,0.35)", offset=0),
                        alt.GradientStop(color="rgba(37,99,235,0.02)", offset=1)],
-                x1=1, x2=1, y1=0, y2=1
-            ),
+                x1=1, x2=1, y1=0, y2=1),
             line={"color": "#2563EB", "strokeWidth": 3},
             interpolate="monotone"
         )
-        points = base.mark_point(size=90, filled=True, color="#1E3A8A")
-        chart_obj = (area + points).properties(height=280)
-
-    else:
+        points = base.mark_point(size=110, filled=True, color="#1E3A8A")
+        labels = base.mark_text(dy=-14, fontWeight=700, color="#0F1E4A").encode(
+            text=alt.Text("value:Q", format=",.1f"))
+        layers = area + points + labels
         if standard:
-            df["status"] = df["value"].apply(
-                lambda v: "Above standard" if v > standard else "Within standard"
-            )
-            color = alt.Color(
-                "status:N", title=None,
-                scale=alt.Scale(domain=["Above standard", "Within standard"],
-                                range=["#F97066", "#10B981"]),
-                legend=alt.Legend(orient="top")
-            )
-        else:
-            color = alt.Color("value:Q", legend=None,
-                              scale=alt.Scale(range=["#93C5FD", "#1E3A8A"]))
+            layers += alt.Chart(pd.DataFrame({"y": [standard]})).mark_rule(
+                color="#F97066", strokeDash=[6, 4], strokeWidth=2).encode(y="y:Q")
+        chart_obj = layers.properties(height=300)
 
-        order = df.sort_values("value", ascending=False)["label"].tolist()
-        bars = alt.Chart(df).mark_bar(
-            cornerRadiusEnd=7, height={"band": 0.7}
-        ).encode(
+    elif kind == "compare":
+        long = pd.concat([
+            pd.DataFrame({"label": df["label"], "series": "Actual", "value": df["value"]}),
+            pd.DataFrame({"label": df["label"], "series": "UBE standard",
+                          "value": df["standard"]}),
+        ])
+        bars = alt.Chart(long).mark_bar(cornerRadiusEnd=6, width={"band": 0.38}).encode(
+            x=alt.X("label:N", title=None, sort=None,
+                    axis=alt.Axis(labelAngle=0, labelLimit=180)),
+            xOffset=alt.XOffset("series:N", sort=["Actual", "UBE standard"]),
+            y=alt.Y("value:Q", title=value_name),
+            color=alt.Color("series:N", title=None,
+                            scale=alt.Scale(domain=["Actual", "UBE standard"],
+                                            range=["#F97066", "#CBD5E1"]),
+                            legend=alt.Legend(orient="top")),
+            tooltip=[alt.Tooltip("label:N", title="Measure"),
+                     alt.Tooltip("series:N", title=""),
+                     alt.Tooltip("value:Q", title="Value", format=",.1f")]
+        )
+        labels = bars.mark_text(dy=-8, fontWeight=700, color="#0F1E4A").encode(
+            text=alt.Text("value:Q", format=",.1f"), color=alt.value("#0F1E4A"))
+        chart_obj = (bars + labels).properties(height=320)
+
+    elif kind == "column":
+        colour = status_colour(df, standard) if standard else alt.Color(
+            "label:N", legend=None, sort=order, scale=alt.Scale(range=PALETTE))
+        bars = alt.Chart(df).mark_bar(cornerRadiusEnd=8, width={"band": 0.6}).encode(
+            x=alt.X("label:N", title=None, sort=order,
+                    axis=alt.Axis(labelAngle=0 if len(df) <= 6 else -35, labelLimit=140)),
+            y=alt.Y("value:Q", title=value_name),
+            color=colour, tooltip=tooltip
+        )
+        labels = bars.mark_text(dy=-9, fontWeight=700).encode(
+            text=alt.Text("value:Q", format=",.1f"), color=alt.value("#0F1E4A"))
+        layers = bars + labels
+        if standard:
+            layers += alt.Chart(pd.DataFrame({"y": [standard]})).mark_rule(
+                color="#0F1E4A", strokeDash=[5, 4], strokeWidth=1.5).encode(y="y:Q")
+        chart_obj = layers.properties(height=320)
+
+    elif kind == "lollipop":
+        base = alt.Chart(df).encode(
+            y=alt.Y("label:N", title=None, sort=order,
+                    axis=alt.Axis(labelLimit=160, labelOverlap=False)),
+            tooltip=tooltip
+        )
+        stems = base.mark_rule(color="#C7D2FE", strokeWidth=3).encode(
+            x=alt.X("value:Q", title=value_name), x2=alt.value(0))
+        heads = base.mark_circle(size=230, opacity=1).encode(
+            x="value:Q",
+            color=alt.Color("value:Q", legend=None,
+                            scale=alt.Scale(range=["#FACC15", "#F97066"])))
+        labels = base.mark_text(align="left", dx=12, fontWeight=700, color="#0F1E4A").encode(
+            x="value:Q", text=alt.Text("value:Q", format=",.2f"))
+        chart_obj = (stems + heads + labels).properties(height={"step": 34})
+
+    else:  # horizontal ranking bar
+        colour = status_colour(df, standard) if standard else alt.Color(
+            "value:Q", legend=None, scale=alt.Scale(range=["#93C5FD", "#1E3A8A"]))
+        bars = alt.Chart(df).mark_bar(cornerRadiusEnd=7, height={"band": 0.7}).encode(
             x=alt.X("value:Q", title=value_name,
                     axis=alt.Axis(grid=True, gridColor="#EEF2F9")),
             y=alt.Y("label:N", title=None, sort=order,
                     axis=alt.Axis(labelLimit=160, labelOverlap=False)),
-            color=color,
-            tooltip=tooltip
+            color=colour, tooltip=tooltip
         )
-        labels = bars.mark_text(
-            align="left", dx=5, color="#0F1E4A", fontWeight=600
-        ).encode(text=alt.Text("value:Q", format=",.2f"), color=alt.value("#0F1E4A"))
+        labels = bars.mark_text(align="left", dx=5, fontWeight=600).encode(
+            text=alt.Text("value:Q", format=",.2f"), color=alt.value("#0F1E4A"))
         layers = bars + labels
-
         if standard:
-            rule = alt.Chart(pd.DataFrame({"x": [standard]})).mark_rule(
-                color="#0F1E4A", strokeDash=[5, 4], strokeWidth=1.5
-            ).encode(x="x:Q")
-            layers = layers + rule
-
+            layers += alt.Chart(pd.DataFrame({"x": [standard]})).mark_rule(
+                color="#0F1E4A", strokeDash=[5, 4], strokeWidth=1.5).encode(x="x:Q")
         chart_obj = layers.properties(height={"step": 34})
 
     st.altair_chart(
         chart_obj.configure_view(strokeWidth=0).configure_axis(
             labelFont="Inter", titleFont="Inter", labelColor="#5B6680",
-            titleColor="#5B6680", domain=False, tickColor="#DCE6F5"
-        ),
-        use_container_width=True
+            titleColor="#5B6680", domain=False, tickColor="#DCE6F5",
+            gridColor="#EEF2F9"
+        ).configure_legend(labelFont="Inter", labelColor="#0F1E4A"),
+        width="stretch"
     )
+
+
+def tile(label, value, sub, bg, icon):
+    return (f'<div class="kpi"><div class="kpi-icon" style="background:{bg};">{icon}</div>'
+            f'<div><div class="kpi-label">{label}</div><div class="kpi-value">{value}</div>'
+            f'<div class="kpi-sub">{sub}</div></div></div>')
 
 
 def kpi_tiles(chart):
+    """Number cards that change with the type of question."""
     df = pd.DataFrame(chart["data"])
+    kind = chart["type"]
     top = df.loc[df["value"].idxmax()]
     low = df.loc[df["value"].idxmin()]
-    standard = chart.get("standard")
 
-    tiles = [
-        ("Highest", top["label"], fmt(top["value"]), "#FEE2E2", "🔺"),
-        ("Lowest", low["label"], fmt(low["value"]), "#D1FAE5", "🔻"),
-        ("Average", f"{len(df)} compared", fmt(df["value"].mean()), "#DBEAFE", "📊"),
-    ]
-    if standard:
-        above = int((df["value"] > standard).sum())
-        tiles.append(("Above standard", f"Standard: {fmt(standard)}",
-                      f"{above}/{len(df)}", "#FEF3C7", "⚠️"))
+    if kind == "line":
+        first, last = df.iloc[0], df.iloc[-1]
+        change = last["value"] - first["value"]
+        pct = change / first["value"] * 100 if first["value"] else 0
+        arrow = "⬆️" if change > 0 else "⬇️" if change < 0 else "➡️"
+        tiles = [
+            tile("Start", fmt(first["value"]), first["label"], "#DBEAFE", "🏁"),
+            tile("Latest", fmt(last["value"]), last["label"], "#EDE9FE", "📍"),
+            tile("Change", f"{change:+,.1f}", f"{pct:+.1f}% overall", "#FEE2E2" if change > 0 else "#D1FAE5", arrow),
+            tile("Peak", fmt(top["value"]), top["label"], "#FEF3C7", "⛰️"),
+        ]
+    elif kind == "pie":
+        total = df["value"].sum()
+        tiles = [
+            tile("Total", fmt(total), chart.get("value_name", ""), "#DBEAFE", "🧮"),
+            tile("Largest share", f"{top['value'] / total * 100:.0f}%", top["label"], "#FEF3C7", "🥇"),
+            tile("Smallest share", f"{low['value'] / total * 100:.0f}%", low["label"], "#D1FAE5", "🔹"),
+            tile("Parts", str(len(df)), "in this chart", "#EDE9FE", "🍩"),
+        ]
+    elif kind == "compare":
+        df["std"] = df["standard"]
+        df["gap"] = df["value"] - df["std"]
+        worst = df.loc[df["gap"].idxmax()]
+        above = int((df["gap"] > 0).sum())
+        tiles = [
+            tile("Above standard", f"{above}/{len(df)}", "measures", "#FEE2E2", "⚠️"),
+            tile("Biggest gap", f"{worst['gap']:+,.1f}", worst["label"], "#FEF3C7", "📏"),
+            tile("Worst value", fmt(worst["value"]), f"Standard: {fmt(worst['std'])}", "#DBEAFE", "🔺"),
+            tile("Measures", str(len(df)), "compared", "#EDE9FE", "🎯"),
+        ]
+    else:
+        standard = chart.get("standard")
+        tiles = [
+            tile("Highest", fmt(top["value"]), top["label"], "#FEE2E2", "🔺"),
+            tile("Lowest", fmt(low["value"]), low["label"], "#D1FAE5", "🔻"),
+            tile("Average", fmt(df["value"].mean()), f"{len(df)} compared", "#DBEAFE", "📊"),
+        ]
+        if standard:
+            above = int((df["value"] > standard).sum())
+            tiles.append(tile("Above standard", f"{above}/{len(df)}",
+                              f"Standard: {fmt(standard)}", "#FEF3C7", "⚠️"))
+        else:
+            spread = top["value"] - low["value"]
+            tiles.append(tile("Spread", fmt(spread), "highest − lowest", "#EDE9FE", "↔️"))
 
-    cells = "".join(
-        f'''<div class="kpi"><div class="kpi-icon" style="background:{bg};">{icon}</div>
-<div><div class="kpi-label">{label}</div><div class="kpi-value">{value}</div>
-<div class="kpi-sub">{sub}</div></div></div>'''
-        for label, sub, value, bg, icon in tiles
-    )
-    html(f'<div class="kpi-row">{cells}</div>')
+    html(f'<div class="kpi-row">{"".join(tiles)}</div>')
 
 
-def leaderboard(chart):
-    df = pd.DataFrame(chart["data"]).sort_values("value", ascending=False).head(5)
+def side_panel(chart):
+    """The small panel beside the chart changes with the chart type."""
+    df = pd.DataFrame(chart["data"])
+    kind = chart["type"]
+
+    if kind == "line":
+        rows = ""
+        for prev, cur in zip(df.itertuples(), list(df.itertuples())[1:]):
+            diff = cur.value - prev.value
+            cls = "up" if diff > 0 else "down"
+            rows += (f'<div class="lb-row"><span class="lb-name">{prev.label} → {cur.label}</span>'
+                     f'<span class="chg {cls}">{diff:+,.1f}</span></div>')
+        html(f'<div class="lb"><div class="lb-title">Year-to-year change</div>{rows}</div>')
+        return
+
+    if kind == "pie":
+        total = df["value"].sum()
+        df = df.sort_values("value", ascending=False)
+        rows = "".join(
+            f'<div class="lb-row"><span class="swatch" style="background:{PALETTE[i % len(PALETTE)]};"></span>'
+            f'<span class="lb-name">{r.label}</span><span class="lb-val">{r.value / total * 100:.1f}%</span></div>'
+            for i, r in enumerate(df.itertuples())
+        )
+        html(f'<div class="lb"><div class="lb-title">Share of total</div>{rows}</div>')
+        return
+
+    if kind == "compare":
+        rows = ""
+        for r in df.itertuples():
+            std = getattr(r, "standard", None) or chart.get("standard") or 0
+            gap = r.value - std
+            cls = "up" if gap > 0 else "down"
+            word = "above" if gap > 0 else "within"
+            rows += (f'<div class="lb-row"><span class="lb-name">{r.label}</span>'
+                     f'<span class="chg {cls}">{gap:+,.1f}</span></div>'
+                     f'<div class="lb-note">{fmt(r.value)} vs standard {fmt(std)} · {word}</div>')
+        html(f'<div class="lb"><div class="lb-title">Gap from the standard</div>{rows}</div>')
+        return
+
+    df = df.sort_values("value", ascending=False).head(5)
     top_value = df["value"].max() or 1
     rows = "".join(
-        f'''<div class="lb-row"><span class="lb-rank">{i}</span>
-<span class="lb-name">{r.label}</span><span class="lb-val">{fmt(r.value)}</span></div>
-<div class="lb-bar"><span style="width:{max(6, r.value / top_value * 100):.0f}%;"></span></div>'''
+        f'<div class="lb-row"><span class="lb-rank">{i}</span>'
+        f'<span class="lb-name">{r.label}</span><span class="lb-val">{fmt(r.value)}</span></div>'
+        f'<div class="lb-bar"><span style="width:{max(6, r.value / top_value * 100):.0f}%;"></span></div>'
         for i, r in enumerate(df.itertuples(), 1)
     )
     html(f'<div class="lb"><div class="lb-title">Top {len(df)}</div>{rows}</div>')
 
 
 def show_assistant_message(message, index):
-    """Show each answer as a small dashboard."""
+    """Written answer first, then a live dashboard that fits the question."""
     chart = message.get("chart")
     source = message.get("source", "")
 
@@ -707,20 +929,25 @@ def show_assistant_message(message, index):
         html(f'<span class="source-tag">📄 {source}</span>')
         return
 
+    icon, chart_name = CHART_TYPES.get(chart["type"], CHART_TYPES["bar"])
+    chosen = "as you asked" if chart.get("requested") else "chosen for this question"
+
     html(f'''
 <div class="dash-head">
 <div>
-<div class="dash-eyebrow">📊 Live dashboard · {chart.get("title", "")}</div>
+<div class="dash-eyebrow">Live dashboard · {chart.get("title", "")}</div>
 <div class="dash-headline">{chart.get("headline", "")}</div>
 </div>
 <span class="source-tag">📄 {source}</span>
 </div>
 ''')
 
-    # The written answer, always visible
     st.markdown(message["content"])
 
-    html('<div class="dash-divider"></div>')
+    html(f'''
+<div class="dash-divider"></div>
+<div class="chart-chip">{icon} {chart_name} <span>· {chosen}</span></div>
+''')
 
     kpi_tiles(chart)
 
@@ -728,7 +955,33 @@ def show_assistant_message(message, index):
     with left:
         draw_chart(chart)
     with right:
-        leaderboard(chart)
+        side_panel(chart)
+
+
+# --------------------------------------------------
+# 6c. Voice questions (speech to text with Groq Whisper)
+# --------------------------------------------------
+
+VOICE_HINT = (
+    "Questions about Lagos State public schools. LGAs: Agege, "
+    "Ajeromi/Ifelodun, Alimosho, Amuwo Odofin, Apapa, Badagry, Epe, "
+    "Eti-Osa, Ibeju/Lekki, Ifako/Ijaiye, Ikeja, Ikorodu, Kosofe, "
+    "Lagos Island, Lagos Mainland, Mushin, Ojo, Oshodi/Isolo, Shomolu, "
+    "Surulere. Terms: UBE standard, JSS, SSS, student-teacher ratio, "
+    "classroom, toilet, resource gap."
+)
+
+
+def transcribe(audio_file):
+    """Turn a recorded voice question into text."""
+    client = OpenAI(api_key=api_key, base_url="https://api.groq.com/openai/v1")
+    result = client.audio.transcriptions.create(
+        file=("question.wav", audio_file.getvalue()),
+        model="whisper-large-v3-turbo",
+        language="en",
+        prompt=VOICE_HINT,
+    )
+    return result.text.strip()
 
 
 # --------------------------------------------------
@@ -756,6 +1009,8 @@ def answer_question(question, vector_db, chat_model, general_retriever):
     })
 
     text, chart = split_chart(answer)
+    if chart:
+        chart = choose_chart_type(question, chart)
 
     return text, source_used, chart
 
@@ -1156,7 +1411,7 @@ so decision-makers can see where support should go first.</p>
 """)
     with right:
         html('<div style="height:3.4rem;"></div>')
-        if st.button("Start asking ERGIT  →", type="primary", use_container_width=True):
+        if st.button("Start asking ERGIT  →", type="primary", width="stretch"):
             st.session_state.page = "chat"
             st.rerun()
 
@@ -1233,7 +1488,7 @@ Manage app → Settings → Secrets. When running locally, add them to your .env
         for i, (icon, sample) in enumerate(SAMPLE_QUESTIONS):
             column = q1 if i % 2 == 0 else q2
             with column:
-                if st.button(f"{icon}  {sample}", key=f"sample_{i}", use_container_width=True):
+                if st.button(f"{icon}  {sample}", key=f"sample_{i}", width="stretch"):
                     st.session_state.pending_question = sample
                     st.rerun()
 
@@ -1243,22 +1498,45 @@ Manage app → Settings → Secrets. When running locally, add them to your .env
             if message["role"] == "assistant":
                 show_assistant_message(message, index)
             else:
-                st.markdown(message["content"])
+                prefix = "🎤 " if message.get("voice") else ""
+                st.markdown(prefix + message["content"])
+
+    # Voice question: record, then ERGIT types it out and answers
+    voice_question = None
+    recording = st.audio_input(
+        "🎤 Or ask with your voice: tap the mic, speak, then tap stop",
+        key=f"mic_{st.session_state.mic_key}"
+    )
+    if recording is not None:
+        with st.spinner("Listening to your question..."):
+            try:
+                voice_question = transcribe(recording)
+            except Exception as e:
+                st.error("Sorry, the voice question could not be understood.")
+                st.code(f"{type(e).__name__}: {e}")
+        st.session_state.mic_key += 1  # clears the recorder for the next question
+        if not voice_question:
+            st.warning("No words were heard. Please try again, a little closer to the mic.")
 
     typed_question = st.chat_input(
         "Ask about education resources in Lagos State..."
     )
 
-    question = typed_question or st.session_state.pop("pending_question", None)
+    question = (
+        typed_question
+        or voice_question
+        or st.session_state.pop("pending_question", None)
+    )
 
     if question:
         st.session_state.messages.append({
             "role": "user",
-            "content": question
+            "content": question,
+            "voice": bool(voice_question) and not typed_question
         })
 
         with st.chat_message("user", avatar="🧑🏾"):
-            st.markdown(question)
+            st.markdown(("🎤 " if voice_question and not typed_question else "") + question)
 
         with st.chat_message("assistant", avatar="🎓"):
             with st.spinner("Searching the education documents..."):
@@ -1297,6 +1575,9 @@ if "page" not in st.session_state:
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
+
+if "mic_key" not in st.session_state:
+    st.session_state.mic_key = 0
 
 render_sidebar()
 
