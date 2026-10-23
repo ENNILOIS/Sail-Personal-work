@@ -1,4 +1,9 @@
 import os
+import re
+import json
+
+import pandas as pd
+import altair as alt
 import streamlit as st
 import streamlit.components.v1 as components
 
@@ -362,6 +367,21 @@ Instructions:
   education standard.
 - Do not claim that a source supports information it does not contain.
 
+Chart instructions:
+- If your answer compares numbers (for example LGAs, school levels or
+  years), add ONE chart block at the very end, in exactly this format:
+
+<chart>
+{{"type": "bar", "title": "Short chart title", "label_name": "LGA", "value_name": "What the number means", "data": [{{"label": "Badagry", "value": 2.0}}, {{"label": "Ojo", "value": 1.85}}]}}
+</chart>
+
+- Use "bar" for rankings and comparisons, "pie" only for shares of a
+  total with 6 parts or fewer, and "line" for changes over years.
+- Use only numbers that appear in the context. Values must be plain
+  numbers, with no units or % signs.
+- If the answer has no numbers to compare, do not add a chart block.
+- Never mention the chart block in the written answer.
+
 Context:
 {context}
 
@@ -441,6 +461,115 @@ def retrieve_context(question, vector_db, general_retriever):
 
 
 # --------------------------------------------------
+# 6b. Live charts from the answer
+# --------------------------------------------------
+
+def split_chart(answer):
+    """Separate the written answer from the chart data."""
+    match = re.search(r"<chart>(.*?)</chart>", answer, re.S)
+    if not match:
+        return answer.strip(), None
+
+    text = (answer[:match.start()] + answer[match.end():]).strip()
+    raw = match.group(1).strip().strip("`").replace("json", "", 1).strip()
+
+    try:
+        chart = json.loads(raw)
+        rows = [
+            {"label": str(d["label"]), "value": float(d["value"])}
+            for d in chart.get("data", [])
+        ]
+        if len(rows) < 2:
+            return text, None
+        chart["data"] = rows
+        return text, chart
+    except Exception:
+        return text, None
+
+
+def draw_chart(chart, view):
+    df = pd.DataFrame(chart["data"])
+    label_name = chart.get("label_name", "Item")
+    value_name = chart.get("value_name", "Value")
+    palette = ["#2563EB", "#FACC15", "#10B981", "#F97066",
+               "#8B5CF6", "#0EA5E9", "#F59E0B", "#1E3A8A"]
+
+    if view == "Pie":
+        base = alt.Chart(df).encode(
+            theta=alt.Theta("value:Q", stack=True),
+            color=alt.Color("label:N", title=label_name,
+                            scale=alt.Scale(range=palette)),
+            tooltip=[alt.Tooltip("label:N", title=label_name),
+                     alt.Tooltip("value:Q", title=value_name)]
+        )
+        chart_obj = base.mark_arc(innerRadius=60, stroke="#FFFFFF")
+    elif view == "Line":
+        chart_obj = alt.Chart(df).mark_line(
+            point=alt.OverlayMarkDef(size=80, filled=True),
+            color="#2563EB", strokeWidth=3
+        ).encode(
+            x=alt.X("label:N", title=label_name, sort=None),
+            y=alt.Y("value:Q", title=value_name),
+            tooltip=[alt.Tooltip("label:N", title=label_name),
+                     alt.Tooltip("value:Q", title=value_name)]
+        )
+    else:
+        bars = alt.Chart(df).mark_bar(
+            cornerRadiusEnd=6, color="#2563EB"
+        ).encode(
+            x=alt.X("value:Q", title=value_name),
+            y=alt.Y("label:N", title=label_name, sort="-x"),
+            tooltip=[alt.Tooltip("label:N", title=label_name),
+                     alt.Tooltip("value:Q", title=value_name)]
+        )
+        labels = bars.mark_text(
+            align="left", dx=4, color="#0F1E4A", fontWeight="bold"
+        ).encode(text=alt.Text("value:Q", format=",.2f"))
+        chart_obj = bars + labels
+
+    st.altair_chart(
+        chart_obj.properties(
+            title=chart.get("title", ""),
+            height=max(260, 34 * len(df)) if view == "Bar" else 340
+        ),
+        use_container_width=True
+    )
+
+
+def show_assistant_message(message, index):
+    """Written answer and chart, one click apart."""
+    chart = message.get("chart")
+
+    tab_answer, tab_chart = st.tabs(["📝 Answer", "📊 Chart"])
+
+    with tab_answer:
+        st.markdown(message["content"])
+
+    with tab_chart:
+        if chart:
+            options = ["Bar", "Pie", "Line"]
+            default = chart.get("type", "bar").capitalize()
+            if default not in options:
+                default = "Bar"
+            view = st.radio(
+                "View as",
+                options,
+                index=options.index(default),
+                horizontal=True,
+                key=f"view_{index}"
+            )
+            draw_chart(chart, view)
+        else:
+            st.info(
+                "This answer has no figures to chart. Try asking for a "
+                "ranking or a comparison between LGAs."
+            )
+
+    if "source" in message:
+        html(f'<span class="source-tag">📄 Source used: {message["source"]}</span>')
+
+
+# --------------------------------------------------
 # 7. Answer questions
 # --------------------------------------------------
 
@@ -453,7 +582,8 @@ def answer_question(question, vector_db, chat_model, general_retriever):
         return (
             "I could not find relevant information in the "
             "available education documents.",
-            source_used
+            source_used,
+            None
         )
 
     chain = prompt | chat_model | StrOutputParser()
@@ -463,7 +593,9 @@ def answer_question(question, vector_db, chat_model, general_retriever):
         "question": question
     })
 
-    return answer, source_used
+    text, chart = split_chart(answer)
+
+    return text, source_used, chart
 
 
 # --------------------------------------------------
@@ -793,7 +925,7 @@ so decision-makers can see where support should go first.</p>
     with f1:
         html("""
 <div class="feature">
-<div class="feature-icon" style="background:#DBEAFE;">📊</div>
+<div class="feature-icon" style="background:#DBEAFE;">🏆</div>
 <div class="feature-title">Ranks every LGA</div>
 <div class="feature-text">Compares all 20 Lagos LGAs with the national standards for teachers, classrooms and toilets, and ranks them by need.</div>
 </div>
@@ -801,9 +933,9 @@ so decision-makers can see where support should go first.</p>
     with f2:
         html("""
 <div class="feature">
-<div class="feature-icon" style="background:#FEF3C7;">📈</div>
-<div class="feature-title">Forecasts shortages</div>
-<div class="feature-text">Machine learning learns from past years to warn where teacher shortages are likely to grow.</div>
+<div class="feature-icon" style="background:#FEF3C7;">📊</div>
+<div class="feature-title">Draws live charts</div>
+<div class="feature-text">Every answer with figures comes with its own chart. Switch between the written answer and a bar or pie chart in one click.</div>
 </div>
 """)
     with f3:
@@ -827,10 +959,10 @@ so decision-makers can see where support should go first.</p>
 <div class="step-text">Official data from DNEMIS and the Lagos Bureau of Statistics.</div></div>
 <div class="step"><div class="step-num">2</div><div class="step-title">🧹 Clean &amp; compare</div>
 <div class="step-text">Checked, cleaned and measured against the UBE standards.</div></div>
-<div class="step"><div class="step-num">3</div><div class="step-title">🏆 Rank &amp; forecast</div>
-<div class="step-text">LGAs ranked by need; shortages forecast with machine learning.</div></div>
-<div class="step"><div class="step-num">4</div><div class="step-title">💡 Explain</div>
-<div class="step-text">The AI assistant answers questions with sources.</div></div>
+<div class="step"><div class="step-num">3</div><div class="step-title">🏆 Rank</div>
+<div class="step-text">LGAs ranked by how far they are from the standards.</div></div>
+<div class="step"><div class="step-num">4</div><div class="step-title">💡 Explain &amp; chart</div>
+<div class="step-text">The AI assistant answers with sources and a live chart.</div></div>
 </div>
 <div class="gap"></div>
 """)
@@ -943,13 +1075,13 @@ Manage app → Settings → Secrets. When running locally, add them to your .env
                     st.session_state.pending_question = sample
                     st.rerun()
 
-    for message in st.session_state.messages:
+    for index, message in enumerate(st.session_state.messages):
         avatar = "🧑🏾" if message["role"] == "user" else "🎓"
         with st.chat_message(message["role"], avatar=avatar):
-            st.markdown(message["content"])
-
-            if message["role"] == "assistant" and "source" in message:
-                html(f'<span class="source-tag">📄 Source used: {message["source"]}</span>')
+            if message["role"] == "assistant":
+                show_assistant_message(message, index)
+            else:
+                st.markdown(message["content"])
 
     typed_question = st.chat_input(
         "Ask about education resources in Lagos State..."
@@ -969,25 +1101,29 @@ Manage app → Settings → Secrets. When running locally, add them to your .env
         with st.chat_message("assistant", avatar="🎓"):
             with st.spinner("Searching the education documents..."):
                 try:
-                    answer, source_used = answer_question(
+                    answer, source_used, chart = answer_question(
                         question, vector_db, chat_model, general_retriever
                     )
-
-                    st.markdown(answer)
-                    html(f'<span class="source-tag">📄 Source used: {source_used}</span>')
 
                     st.session_state.messages.append({
                         "role": "assistant",
                         "content": answer,
-                        "source": source_used
+                        "source": source_used,
+                        "chart": chart
                     })
+                    answered = True
 
                 except Exception as e:
+                    answered = False
                     st.error(
                         "Something went wrong while answering your question."
                     )
                     st.code(f"{type(e).__name__}: {e}")
                     print(f"RAG error: {type(e).__name__}: {e}")
+
+        # Redraw the page so the new answer shows with its Answer / Chart tabs
+        if answered:
+            st.rerun()
 
 
 # --------------------------------------------------
