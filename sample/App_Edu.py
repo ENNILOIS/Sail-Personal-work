@@ -1064,7 +1064,8 @@ VOICE_HINT = (
     "Eti-Osa, Ibeju/Lekki, Ifako/Ijaiye, Ikeja, Ikorodu, Kosofe, "
     "Lagos Island, Lagos Mainland, Mushin, Ojo, Oshodi/Isolo, Shomolu, "
     "Surulere. Terms: UBE standard, JSS, SSS, student-teacher ratio, "
-    "classroom, toilet, resource gap."
+    "classroom, toilet, resource gap. Charts: line chart, donut chart, "
+    "pie chart, bar chart, column chart, dot chart, dashboard."
 )
 
 
@@ -1085,6 +1086,7 @@ def transcribe(audio_file):
 # --------------------------------------------------
 
 def answer_question(question, vector_db, chat_model, general_retriever, name=None):
+    question = quick_fix(question)  # e.g. "lime chart" -> "line chart"
     context, source_used = retrieve_context(
         question, vector_db, general_retriever
     )
@@ -1140,17 +1142,47 @@ Lagos LGAs: Agege, Ajeromi/Ifelodun, Alimosho, Amuwo Odofin, Apapa,
 Badagry, Epe, Eti-Osa, Ibeju/Lekki, Ifako/Ijaiye, Ikeja, Ikorodu, Kosofe,
 Lagos Island, Lagos Mainland, Mushin, Ojo, Oshodi/Isolo, Shomolu, Surulere.
 
-Rewrite it as the clear question the user most likely meant. Fix only the
-misheard words. Keep it short, about as long as what was heard, and do NOT
-add topics, lists or details the user did not say. Keep any chart type
-they asked for ("do not chart" or "dot chart" means a dot chart).
+Some words may sound alike but be wrong. Any word that does not make sense
+for this app was probably misheard: replace it with the closest-sounding
+word that does make sense. Examples:
+- "lime chart", "lined chart", "lion chart" -> "line chart"
+- "Donald chart", "donor chart", "doughnut chat" -> "donut chart"
+- "do not chart", "dog chart" -> "dot chart"
+- "pie chat", "pi chart" -> "pie chart"; "bar chat" -> "bar chart"
+- "bad agree", "bad agri" -> "Badagry"; "alley mosho" -> "Alimosho"
+- "world of times", "over the times" -> "over time"
+- "student teacher ratio point" -> "student-teacher ratio"
+- "toy let", "toilette" -> "toilet"; "J.S.S." -> "JSS"
+
+Then rewrite it as the clear question the user most likely meant.
+Keep it short, about as long as what was heard, and do not add topics
+the user did not say. Keep every chart type they asked for.
 Reply with the question only.
 
 Heard: {heard}
 """)
 
 
+VOICE_FIXES = [
+    (r"\b(lime|lined|lion|lyme)\s+chart", "line chart"),
+    (r"\b(donald|donor|doughnut|donuts?|donat)\s+cha?rt", "donut chart"),
+    (r"\b(do not|dog|dots?)\s+chart", "dot chart"),
+    (r"\b(pie|pi|pye)\s+chat\b", "pie chart"),
+    (r"\bpi\s+chart", "pie chart"),
+    (r"\b(bar|ba)\s+chat\b", "bar chart"),
+    (r"\bbad\s*agr(ee|i|y)\b", "Badagry"),
+    (r"\bworld of times?\b", "over time"),
+]
+
+
+def quick_fix(text):
+    for pattern, replacement in VOICE_FIXES:
+        text = re.sub(pattern, replacement, text, flags=re.I)
+    return text
+
+
 def understand_voice(heard, chat_model):
+    heard = quick_fix(heard) if heard else heard
     try:
         fixed = (voice_fix_prompt | chat_model | StrOutputParser()).invoke({"heard": heard})
         fixed = fixed.strip().strip('"').strip()
