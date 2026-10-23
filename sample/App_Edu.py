@@ -293,7 +293,7 @@ inject_css()
 # 3. Load environment variables
 # --------------------------------------------------
 
-load_dotenv()
+load_dotenv(override=True)
 
 
 def get_key(name):
@@ -314,12 +314,15 @@ embedding_api_key = get_key("EMBEDDING_API_KEY")
 # 4. Initialize models and Chroma database
 # --------------------------------------------------
 
+# The keys are passed in, so the app rebuilds the models
+# automatically whenever a key changes.
 @st.cache_resource
-def load_rag_components():
+def load_rag_components(api_key, embedding_api_key):
     embeddings = OpenAIEmbeddings(
         model="Qwen/Qwen3-Embedding-0.6B",
         base_url="https://qwen-embed.publicaai.com/v1",
-        api_key=embedding_api_key
+        api_key=embedding_api_key,
+        check_embedding_ctx_length=False
     )
 
     vector_db = Chroma(
@@ -916,7 +919,7 @@ Manage app → Settings → Secrets. When running locally, add them to your .env
         st.stop()
 
     try:
-        vector_db, chat_model = load_rag_components()
+        vector_db, chat_model = load_rag_components(api_key, embedding_api_key)
     except Exception as e:
         html(f'<div class="ergit-error"><b>Could not initialize the RAG system:</b> {e}</div>')
         st.stop()
