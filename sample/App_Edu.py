@@ -421,6 +421,11 @@ Understanding the question:
   may mean "Badagry"). Work out the most likely meaning from the context
   and answer that, instead of saying the information is not available.
   If you had to guess, start with "I think you're asking about ...".
+- For "top N", "least N", "bottom N" or "all LGAs" questions, use the
+  ranking lists in the context ("Ranking of LGAs by ..., from most lacking
+  to least lacking"). Top = the start of the list; least or bottom = the
+  end of the list. Give exactly the number of LGAs asked for, with their
+  figures, and put all of them in the dashboard block.
 - When the question is about one LGA, give the figure for all public
   schools combined (Primary, JSS and SSS) first, then each school level
   if it is in the context, and say which year the figures are for.
@@ -496,87 +501,92 @@ LGA_NAMES = {
 }
 
 
+# Questions that ask for a list or ranking (top 10, least 5, all LGAs ...)
+RANKING_PATTERN = re.compile(
+    r"\b(top|bottom|least|lowest|highest|most|rank\w*|list|all|worst|best|"
+    r"order|lacking|shortages?|greatest|largest|smallest|fewest|biggest|"
+    r"which lgas?|\d+\s+lgas?)\b"
+)
+
+# Questions about the overall resource-gap score (all three resources together)
+OVERALL_WORDS = [
+    "overall", "resource gap", "resource-gap", "gap score", "biggest gap",
+    "greatest gap", "most lacking overall", "least lacking overall"
+]
+
+PDF_FILTER = {"source": "Lagos_Education_RAG_Knowledge_Base.pdf"}
+
+
+def search_containing(vector_db, query, must_contain, k=4, source_filter=PDF_FILTER):
+    """Search only the pieces that contain an exact phrase."""
+    try:
+        return vector_db.similarity_search(
+            query, k=k, filter=source_filter,
+            where_document={"$contains": must_contain}
+        )
+    except Exception:
+        return []
+
+
 def retrieve_context(question, vector_db, general_retriever):
-    ranking_keywords = [
-        "ranking",
-        "ranked",
-        "greatest overall",
-        "greatest resource gap",
-        "greatest resource gaps",
-        "largest resource gap",
-        "largest resource gaps",
-        "highest resource gap",
-        "highest resource gaps",
-        "highest resource-gap score",
-        "lowest resource gap",
-        "lowest resource gaps",
-        "smallest resource gap",
-        "smallest resource gaps",
-        "top five",
-        "bottom five",
-        "five lgas",
-        "which lgas",
-        "overall resource gap",
-        "overall resource gaps",
-        "most lacking overall",
-        "worst resource gaps",
-        "resource-gap score",
-        "resource gap scores"
-    ]
-
     question_lower = question.lower()
+    docs, seen, sources = [], set(), []
 
-    is_ranking_question = any(
-        keyword in question_lower
-        for keyword in ranking_keywords
-    )
+    def add(new_docs, source_name):
+        added = False
+        for doc in new_docs:
+            if doc.page_content not in seen:
+                docs.append(doc)
+                seen.add(doc.page_content)
+                added = True
+        if added and source_name not in sources:
+            sources.append(source_name)
 
-    if is_ranking_question:
-        docs = vector_db.similarity_search(
-            "LAGOS STATE EDUCATION RESOURCE-GAP RANKING",
-            k=2,
-            filter={
-                "source": "Lagos_Resource_Gap_Ranking.txt"
-            }
+    is_overall = any(w in question_lower for w in OVERALL_WORDS)
+    is_ranking = bool(RANKING_PATTERN.search(question_lower))
+
+    # 1. Overall resource-gap ranking (the ranking text file + PDF summary)
+    if is_overall:
+        ranking_docs = vector_db.similarity_search(
+            "LAGOS STATE EDUCATION RESOURCE-GAP RANKING", k=2,
+            filter={"source": "Lagos_Resource_Gap_Ranking.txt"}
         )
+        ranking_docs.sort(key=lambda d: 0 if "LAGOS STATE EDUCATION RESOURCE-GAP RANKING"
+                          in d.page_content.upper() else 1)
+        add(ranking_docs, "Ranking TXT")
+        add(search_containing(vector_db, "most and least lacking LGAs overall",
+                              "lacking LGAs overall", k=2), "Education PDF")
 
-        docs.sort(
-            key=lambda doc: (
-                0 if "LAGOS STATE EDUCATION RESOURCE-GAP RANKING"
-                in doc.page_content.upper() else 1
-            )
-        )
+    # 2. Full rankings of all 20 LGAs (teachers, classrooms, toilets, learners)
+    if is_ranking or is_overall:
+        add(search_containing(vector_db, "ranking of LGAs from most lacking to least lacking",
+                              "Ranking of LGAs by", k=4), "Education PDF")
+        add(search_containing(vector_db, "how many LGAs are lacking teachers classrooms toilets",
+                              "Out of 20 LGAs", k=1), "Education PDF")
 
-        source_used = "Ranking TXT"
+        # A long ranking list can be split over two pieces of the PDF.
+        # The list items look like "(57.7 students per teacher);", so
+        # this phrase finds every piece of the list.
+        wanted = [w for w in ["teacher", "classroom", "toilet"] if w in question_lower]
+        for word in wanted or ["teacher", "classroom", "toilet"]:
+            add(search_containing(vector_db, f"ranking of LGAs by students per {word}",
+                                  f"students per {word});", k=3), "Education PDF")
 
-    else:
-        docs = general_retriever.invoke(question)
+    # 3. A named LGA: the pieces that contain that LGA's name
+    for typed, name in LGA_NAMES.items():
+        if re.search(rf"\b{re.escape(typed)}\b", question_lower):
+            add(search_containing(vector_db, f"{name} LGA students per teacher classroom toilet",
+                                  name), "Education PDF")
 
-        # Extra searches, so LGA and school-level questions always
-        # find the exact section that contains the right words.
-        pdf_filter = {"source": "Lagos_Education_RAG_Knowledge_Base.pdf"}
-        extra = []
+    # 4. School levels
+    if any(w in question_lower for w in ["level", "primary", "jss", "sss", "junior", "senior"]):
+        add(search_containing(vector_db, "school level average students per teacher classroom toilet",
+                              "across Lagos averaged"), "Education PDF")
 
-        for typed, name in LGA_NAMES.items():
-            if re.search(rf"\b{re.escape(typed)}\b", question_lower):
-                extra.append((f"{name} LGA students per teacher classroom toilet", name))
+    # 5. Normal meaning-based search, for everything else
+    add(general_retriever.invoke(question), "Education PDF")
 
-        if any(w in question_lower for w in
-               ["level", "primary", "jss", "sss", "junior", "senior"]):
-            extra.append(("school level average students per teacher classroom toilet",
-                          "across Lagos averaged"))
-
-        seen = {doc.page_content for doc in docs}
-        for query, must_contain in dict.fromkeys(extra):
-            for doc in vector_db.similarity_search(
-                query, k=4, filter=pdf_filter,
-                where_document={"$contains": must_contain}
-            ):
-                if doc.page_content not in seen:
-                    docs.insert(0, doc)
-                    seen.add(doc.page_content)
-
-        source_used = "Education PDF"
+    source_used = " + ".join(sources) if sources else "Education PDF"
 
     context = "\n\n".join(
         doc.page_content for doc in docs
