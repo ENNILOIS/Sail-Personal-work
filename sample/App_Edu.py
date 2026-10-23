@@ -252,6 +252,7 @@ box-shadow: 0 8px 20px rgba(37, 99, 235, 0.25);
 .dash-eyebrow {font-size: 0.72rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--blue);}
 .dash-headline {font-family: 'Plus Jakarta Sans', sans-serif; font-weight: 700; font-size: 1.15rem; color: var(--ink); margin-top: 0.25rem; line-height: 1.35;}
 .dash-head .source-tag {margin-top: 0; white-space: nowrap;}
+.dash-divider {height: 1px; background: var(--line); margin: 0.9rem 0 1rem 0;}
 .kpi-row {display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.7rem; margin-bottom: 0.9rem;}
 .kpi {display: flex; gap: 0.65rem; align-items: center; background: #F8FAFF; border: 1px solid var(--line); border-radius: 14px; padding: 0.7rem 0.8rem;}
 .kpi-icon {width: 36px; height: 36px; min-width: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1rem;}
@@ -709,6 +710,11 @@ def show_assistant_message(message, index):
 </div>
 ''')
 
+    # The written answer, always visible
+    st.markdown(message["content"])
+
+    html('<div class="dash-divider"></div>')
+
     kpi_tiles(chart)
 
     left, right = st.columns([1.75, 1], gap="medium")
@@ -716,9 +722,6 @@ def show_assistant_message(message, index):
         draw_chart(chart)
     with right:
         leaderboard(chart)
-
-    with st.expander("📝 Read the full answer"):
-        st.markdown(message["content"])
 
 
 # --------------------------------------------------
