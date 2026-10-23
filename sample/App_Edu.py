@@ -231,12 +231,42 @@ padding: 1.4rem 1.6rem; box-shadow: 0 10px 30px rgba(15, 30, 74, 0.06);
 .chat-hero p {color: var(--muted) !important; margin: 0.3rem 0 0 0;}
 
 [data-testid="stChatMessage"] {
-background: #FFFFFF; border: 1px solid var(--line); border-radius: 18px;
-padding: 1rem 1.1rem; box-shadow: 0 4px 14px rgba(15, 30, 74, 0.05);
+background: #FFFFFF; border: 1px solid var(--line); border-radius: 20px;
+padding: 1.1rem 1.2rem; box-shadow: 0 12px 32px rgba(15, 30, 74, 0.06);
+margin-bottom: 0.4rem;
 }
+[data-testid="stChatMessage"] p, [data-testid="stChatMessage"] li {font-size: 0.93rem; line-height: 1.6;}
+/* User question: small blue bubble on the right */
 [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {
-background: #EEF4FF; border-color: #C9DAFB;
+background: linear-gradient(120deg, #1E3A8A, #2563EB); border: none;
+width: fit-content; max-width: 75%; margin-left: auto;
+padding: 0.7rem 1.1rem; border-radius: 18px 18px 4px 18px; margin-top: 0.6rem;
+box-shadow: 0 8px 20px rgba(37, 99, 235, 0.25);
 }
+[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) p {color: #FFFFFF !important; margin: 0; line-height: 1.5;}
+[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) [data-testid="stMarkdownContainer"] {margin-bottom: 0 !important;}
+[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) [data-testid="stChatMessageAvatarUser"] {display: none;}
+
+/* Answer dashboard */
+.dash-head {display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: 0.8rem;}
+.dash-eyebrow {font-size: 0.72rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--blue);}
+.dash-headline {font-family: 'Plus Jakarta Sans', sans-serif; font-weight: 700; font-size: 1.15rem; color: var(--ink); margin-top: 0.25rem; line-height: 1.35;}
+.dash-head .source-tag {margin-top: 0; white-space: nowrap;}
+.kpi-row {display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.7rem; margin-bottom: 0.9rem;}
+.kpi {display: flex; gap: 0.65rem; align-items: center; background: #F8FAFF; border: 1px solid var(--line); border-radius: 14px; padding: 0.7rem 0.8rem;}
+.kpi-icon {width: 36px; height: 36px; min-width: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1rem;}
+.kpi-label {font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 600;}
+.kpi-value {font-family: 'Plus Jakarta Sans', sans-serif; font-weight: 800; font-size: 1.25rem; color: var(--ink); line-height: 1.2;}
+.kpi-sub {font-size: 0.76rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 130px;}
+.lb {background: #F8FAFF; border: 1px solid var(--line); border-radius: 14px; padding: 0.9rem 1rem;}
+.lb-title {font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); font-weight: 600; margin-bottom: 0.6rem;}
+.lb-row {display: flex; align-items: center; gap: 0.55rem; font-size: 0.88rem; margin-top: 0.55rem;}
+.lb-rank {width: 22px; height: 22px; border-radius: 50%; background: var(--navy); color: #FFFFFF; font-size: 0.72rem; font-weight: 700; display: flex; align-items: center; justify-content: center;}
+.lb-name {flex: 1; font-weight: 600; color: var(--ink);}
+.lb-val {font-family: 'Plus Jakarta Sans', sans-serif; font-weight: 700; color: var(--navy);}
+.lb-bar {height: 6px; background: #E6ECF7; border-radius: 99px; margin: 0.3rem 0 0 1.9rem; overflow: hidden;}
+.lb-bar > span {display: block; height: 100%; border-radius: 99px; background: linear-gradient(90deg, #FACC15, #F97066);}
+[data-testid="stChatMessage"] [data-testid="stExpander"] {border: 1px solid var(--line); border-radius: 12px; margin-top: 0.6rem;}
 [data-testid="stChatMessage"] table {border-collapse: collapse; width: 100%;}
 [data-testid="stChatMessage"] th {
 background: #EEF4FF; text-align: left; padding: 0.45rem; border-bottom: 2px solid var(--blue);
@@ -367,20 +397,25 @@ Instructions:
   education standard.
 - Do not claim that a source supports information it does not contain.
 
-Chart instructions:
+Dashboard instructions:
+- Keep the written answer short: 2 to 4 sentences, then a table only if
+  it really helps.
 - If your answer compares numbers (for example LGAs, school levels or
-  years), add ONE chart block at the very end, in exactly this format:
+  years), add ONE dashboard block at the very end, in exactly this format:
 
 <chart>
-{{"type": "bar", "title": "Short chart title", "label_name": "LGA", "value_name": "What the number means", "data": [{{"label": "Badagry", "value": 2.0}}, {{"label": "Ojo", "value": 1.85}}]}}
+{{"type": "bar", "title": "Short chart title", "headline": "One-sentence key finding", "label_name": "LGA", "value_name": "What the number means", "standard": 30, "data": [{{"label": "Badagry", "value": 2.0}}, {{"label": "Ojo", "value": 1.85}}]}}
 </chart>
 
-- Use "bar" for rankings and comparisons, "pie" only for shares of a
-  total with 6 parts or fewer, and "line" for changes over years.
+- "type": "bar" for rankings and comparisons, "pie" only for shares of a
+  total with 6 parts or fewer, "line" for changes over years.
+- "standard": the UBE standard the values are compared with (35 for
+  students per teacher, 35 for students per classroom, 30 for students
+  per toilet). Use null if the values are not ratios.
 - Use only numbers that appear in the context. Values must be plain
   numbers, with no units or % signs.
-- If the answer has no numbers to compare, do not add a chart block.
-- Never mention the chart block in the written answer.
+- If the answer has no numbers to compare, do not add a dashboard block.
+- Never mention the dashboard block in the written answer.
 
 Context:
 {context}
@@ -395,6 +430,14 @@ Answer:
 # --------------------------------------------------
 # 6. Route questions to the appropriate source
 # --------------------------------------------------
+
+LGA_NAMES = [
+    "Agege", "Ajeromi", "Alimosho", "Amuwo", "Apapa", "Badagry", "Epe",
+    "Eti-Osa", "Eti Osa", "Ibeju", "Ifako", "Ikeja", "Ikorodu", "Kosofe",
+    "Lagos Island", "Lagos Mainland", "Mushin", "Ojo", "Oshodi",
+    "Shomolu", "Somolu", "Surulere"
+]
+
 
 def retrieve_context(question, vector_db, general_retriever):
     ranking_keywords = [
@@ -451,6 +494,30 @@ def retrieve_context(question, vector_db, general_retriever):
 
     else:
         docs = general_retriever.invoke(question)
+
+        # Extra searches, so LGA and school-level questions find
+        # the exact section they need.
+        extra_queries = [
+            f"{lga} LGA students per teacher classroom toilet"
+            for lga in LGA_NAMES if lga.lower() in question_lower
+        ]
+        if any(w in question_lower for w in
+               ["level", "primary", "jss", "sss", "junior", "senior"]):
+            extra_queries.append(
+                "Primary JSS SSS school level average students per "
+                "teacher classroom toilet"
+            )
+
+        seen = {doc.page_content for doc in docs}
+        for query in extra_queries:
+            for doc in vector_db.similarity_search(
+                query, k=3,
+                filter={"source": "Lagos_Education_RAG_Knowledge_Base.pdf"}
+            ):
+                if doc.page_content not in seen:
+                    docs.append(doc)
+                    seen.add(doc.page_content)
+
         source_used = "Education PDF"
 
     context = "\n\n".join(
@@ -482,91 +549,176 @@ def split_chart(answer):
         if len(rows) < 2:
             return text, None
         chart["data"] = rows
+        try:
+            chart["standard"] = float(chart.get("standard")) or None
+        except (TypeError, ValueError):
+            chart["standard"] = None
         return text, chart
     except Exception:
         return text, None
 
 
-def draw_chart(chart, view):
-    df = pd.DataFrame(chart["data"])
-    label_name = chart.get("label_name", "Item")
-    value_name = chart.get("value_name", "Value")
-    palette = ["#2563EB", "#FACC15", "#10B981", "#F97066",
-               "#8B5CF6", "#0EA5E9", "#F59E0B", "#1E3A8A"]
+def fmt(value):
+    return f"{value:,.0f}" if abs(value) >= 1000 else f"{value:,.2f}".rstrip("0").rstrip(".")
 
-    if view == "Pie":
-        base = alt.Chart(df).encode(
+
+def draw_chart(chart):
+    df = pd.DataFrame(chart["data"])
+    value_name = chart.get("value_name", "Value")
+    label_name = chart.get("label_name", "Item")
+    standard = chart.get("standard")
+    kind = str(chart.get("type", "bar")).lower()
+    tooltip = [alt.Tooltip("label:N", title=label_name),
+               alt.Tooltip("value:Q", title=value_name, format=",.2f")]
+
+    if kind == "pie" and len(df) <= 6:
+        palette = ["#2563EB", "#FACC15", "#10B981", "#F97066", "#8B5CF6", "#0EA5E9"]
+        chart_obj = alt.Chart(df).mark_arc(
+            innerRadius=70, outerRadius=120, stroke="#FFFFFF", strokeWidth=3
+        ).encode(
             theta=alt.Theta("value:Q", stack=True),
-            color=alt.Color("label:N", title=label_name,
-                            scale=alt.Scale(range=palette)),
-            tooltip=[alt.Tooltip("label:N", title=label_name),
-                     alt.Tooltip("value:Q", title=value_name)]
+            color=alt.Color("label:N", title=None,
+                            scale=alt.Scale(range=palette),
+                            legend=alt.Legend(orient="bottom")),
+            tooltip=tooltip
+        ).properties(height=300)
+
+    elif kind == "line":
+        base = alt.Chart(df).encode(
+            x=alt.X("label:N", title=None, sort=None,
+                    axis=alt.Axis(labelAngle=0)),
+            y=alt.Y("value:Q", title=value_name,
+                    scale=alt.Scale(zero=False)),
+            tooltip=tooltip
         )
-        chart_obj = base.mark_arc(innerRadius=60, stroke="#FFFFFF")
-    elif view == "Line":
-        chart_obj = alt.Chart(df).mark_line(
-            point=alt.OverlayMarkDef(size=80, filled=True),
-            color="#2563EB", strokeWidth=3
-        ).encode(
-            x=alt.X("label:N", title=label_name, sort=None),
-            y=alt.Y("value:Q", title=value_name),
-            tooltip=[alt.Tooltip("label:N", title=label_name),
-                     alt.Tooltip("value:Q", title=value_name)]
+        area = base.mark_area(
+            color=alt.Gradient(
+                gradient="linear",
+                stops=[alt.GradientStop(color="rgba(37,99,235,0.35)", offset=0),
+                       alt.GradientStop(color="rgba(37,99,235,0.02)", offset=1)],
+                x1=1, x2=1, y1=0, y2=1
+            ),
+            line={"color": "#2563EB", "strokeWidth": 3},
+            interpolate="monotone"
         )
+        points = base.mark_point(size=90, filled=True, color="#1E3A8A")
+        chart_obj = (area + points).properties(height=280)
+
     else:
+        if standard:
+            df["status"] = df["value"].apply(
+                lambda v: "Above standard" if v > standard else "Within standard"
+            )
+            color = alt.Color(
+                "status:N", title=None,
+                scale=alt.Scale(domain=["Above standard", "Within standard"],
+                                range=["#F97066", "#10B981"]),
+                legend=alt.Legend(orient="top")
+            )
+        else:
+            color = alt.Color("value:Q", legend=None,
+                              scale=alt.Scale(range=["#93C5FD", "#1E3A8A"]))
+
+        order = df.sort_values("value", ascending=False)["label"].tolist()
         bars = alt.Chart(df).mark_bar(
-            cornerRadiusEnd=6, color="#2563EB"
+            cornerRadiusEnd=7, height={"band": 0.7}
         ).encode(
-            x=alt.X("value:Q", title=value_name),
-            y=alt.Y("label:N", title=label_name, sort="-x"),
-            tooltip=[alt.Tooltip("label:N", title=label_name),
-                     alt.Tooltip("value:Q", title=value_name)]
+            x=alt.X("value:Q", title=value_name,
+                    axis=alt.Axis(grid=True, gridColor="#EEF2F9")),
+            y=alt.Y("label:N", title=None, sort=order,
+                    axis=alt.Axis(labelLimit=160, labelOverlap=False)),
+            color=color,
+            tooltip=tooltip
         )
         labels = bars.mark_text(
-            align="left", dx=4, color="#0F1E4A", fontWeight="bold"
-        ).encode(text=alt.Text("value:Q", format=",.2f"))
-        chart_obj = bars + labels
+            align="left", dx=5, color="#0F1E4A", fontWeight=600
+        ).encode(text=alt.Text("value:Q", format=",.2f"), color=alt.value("#0F1E4A"))
+        layers = bars + labels
+
+        if standard:
+            rule = alt.Chart(pd.DataFrame({"x": [standard]})).mark_rule(
+                color="#0F1E4A", strokeDash=[5, 4], strokeWidth=1.5
+            ).encode(x="x:Q")
+            layers = layers + rule
+
+        chart_obj = layers.properties(height={"step": 34})
 
     st.altair_chart(
-        chart_obj.properties(
-            title=chart.get("title", ""),
-            height=max(260, 34 * len(df)) if view == "Bar" else 340
+        chart_obj.configure_view(strokeWidth=0).configure_axis(
+            labelFont="Inter", titleFont="Inter", labelColor="#5B6680",
+            titleColor="#5B6680", domain=False, tickColor="#DCE6F5"
         ),
         use_container_width=True
     )
 
 
+def kpi_tiles(chart):
+    df = pd.DataFrame(chart["data"])
+    top = df.loc[df["value"].idxmax()]
+    low = df.loc[df["value"].idxmin()]
+    standard = chart.get("standard")
+
+    tiles = [
+        ("Highest", top["label"], fmt(top["value"]), "#FEE2E2", "🔺"),
+        ("Lowest", low["label"], fmt(low["value"]), "#D1FAE5", "🔻"),
+        ("Average", f"{len(df)} compared", fmt(df["value"].mean()), "#DBEAFE", "📊"),
+    ]
+    if standard:
+        above = int((df["value"] > standard).sum())
+        tiles.append(("Above standard", f"Standard: {fmt(standard)}",
+                      f"{above}/{len(df)}", "#FEF3C7", "⚠️"))
+
+    cells = "".join(
+        f'''<div class="kpi"><div class="kpi-icon" style="background:{bg};">{icon}</div>
+<div><div class="kpi-label">{label}</div><div class="kpi-value">{value}</div>
+<div class="kpi-sub">{sub}</div></div></div>'''
+        for label, sub, value, bg, icon in tiles
+    )
+    html(f'<div class="kpi-row">{cells}</div>')
+
+
+def leaderboard(chart):
+    df = pd.DataFrame(chart["data"]).sort_values("value", ascending=False).head(5)
+    top_value = df["value"].max() or 1
+    rows = "".join(
+        f'''<div class="lb-row"><span class="lb-rank">{i}</span>
+<span class="lb-name">{r.label}</span><span class="lb-val">{fmt(r.value)}</span></div>
+<div class="lb-bar"><span style="width:{max(6, r.value / top_value * 100):.0f}%;"></span></div>'''
+        for i, r in enumerate(df.itertuples(), 1)
+    )
+    html(f'<div class="lb"><div class="lb-title">Top {len(df)}</div>{rows}</div>')
+
+
 def show_assistant_message(message, index):
-    """Written answer and chart, one click apart."""
+    """Show each answer as a small dashboard."""
     chart = message.get("chart")
+    source = message.get("source", "")
 
-    tab_answer, tab_chart = st.tabs(["📝 Answer", "📊 Chart"])
-
-    with tab_answer:
+    if not chart:
         st.markdown(message["content"])
+        html(f'<span class="source-tag">📄 {source}</span>')
+        return
 
-    with tab_chart:
-        if chart:
-            options = ["Bar", "Pie", "Line"]
-            default = chart.get("type", "bar").capitalize()
-            if default not in options:
-                default = "Bar"
-            view = st.radio(
-                "View as",
-                options,
-                index=options.index(default),
-                horizontal=True,
-                key=f"view_{index}"
-            )
-            draw_chart(chart, view)
-        else:
-            st.info(
-                "This answer has no figures to chart. Try asking for a "
-                "ranking or a comparison between LGAs."
-            )
+    html(f'''
+<div class="dash-head">
+<div>
+<div class="dash-eyebrow">📊 Live dashboard · {chart.get("title", "")}</div>
+<div class="dash-headline">{chart.get("headline", "")}</div>
+</div>
+<span class="source-tag">📄 {source}</span>
+</div>
+''')
 
-    if "source" in message:
-        html(f'<span class="source-tag">📄 Source used: {message["source"]}</span>')
+    kpi_tiles(chart)
+
+    left, right = st.columns([1.75, 1], gap="medium")
+    with left:
+        draw_chart(chart)
+    with right:
+        leaderboard(chart)
+
+    with st.expander("📝 Read the full answer"):
+        st.markdown(message["content"])
 
 
 # --------------------------------------------------
@@ -1058,7 +1210,7 @@ Manage app → Settings → Secrets. When running locally, add them to your .env
 
     general_retriever = vector_db.as_retriever(
         search_kwargs={
-            "k": 5,
+            "k": 8,
             "filter": {
                 "source": "Lagos_Education_RAG_Knowledge_Base.pdf"
             }
