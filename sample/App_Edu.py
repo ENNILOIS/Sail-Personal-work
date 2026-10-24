@@ -311,6 +311,15 @@ box-shadow: 0 8px 20px rgba(37, 99, 235, 0.25);
 .st-key-suggestions button {border-radius: 999px !important; padding: 0.3rem 0.85rem !important; min-height: 0 !important; font-size: 0.85rem !important; background: #F5F8FE !important; border: 1px solid var(--line) !important; box-shadow: none !important;}
 .st-key-suggestions button p {font-weight: 500 !important; font-size: 0.85rem !important;}
 .st-key-suggestions button:hover {border-color: var(--blue) !important; color: var(--blue) !important; background: #EEF4FF !important; transform: none !important;}
+.st-key-history button {justify-content: flex-start !important; text-align: left !important; font-size: 0.85rem !important; padding: 0.35rem 0.6rem !important; min-height: 0 !important; border-radius: 10px !important; box-shadow: none !important;}
+.st-key-history button p {font-weight: 500 !important; font-size: 0.85rem !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
+.st-key-history button[kind="tertiary"] {color: var(--ink) !important; border: none !important; background: transparent !important;}
+.st-key-history {gap: 0.15rem !important;}
+.st-key-history button > div {justify-content: flex-start !important; width: 100%; min-width: 0;}
+.st-key-history button > div > span {justify-content: flex-start !important; min-width: 0; overflow: hidden;}
+.st-key-history [data-testid="stMarkdownContainer"] {text-align: left !important; min-width: 0; overflow: hidden;}
+.st-key-history button[kind="tertiary"]:hover {background: #F5F8FE !important; color: var(--blue) !important;}
+.st-key-history button[kind="primary"] {background: #EEF4FF !important; color: var(--navy) !important; border: 1px solid #C9DAFB !important; font-size: 0.85rem !important;}
 .heard {font-size: 0.75rem !important; color: #C9DAFB !important; margin-top: 0.2rem !important;}
 
 /* Answer dashboard */
@@ -1504,6 +1513,48 @@ animate();
 # 9. Sidebar
 # --------------------------------------------------
 
+# --------------------------------------------------
+# 9b. Chat history (kept for this visit)
+# --------------------------------------------------
+
+def chat_title(chat):
+    turns = chat["turns"]
+    if not turns:
+        return "New chat"
+    first = turns[0]["versions"][0]["question"]
+    return first if len(first) <= 34 else first[:32].rstrip() + "…"
+
+
+def remember_current_chat():
+    """Add the open conversation to the history list (once)."""
+    if st.session_state.turns and st.session_state.current_chat_id is None:
+        st.session_state.next_chat_id += 1
+        chat_id = st.session_state.next_chat_id
+        # The history shares the same list, so new questions are saved automatically
+        st.session_state.chats.append({"id": chat_id, "turns": st.session_state.turns})
+        st.session_state.current_chat_id = chat_id
+
+
+def start_new_chat():
+    remember_current_chat()
+    st.session_state.turns = []
+    st.session_state.current_chat_id = None
+    st.session_state.editing = None
+    st.session_state.greeted = False
+    st.session_state.page = "chat"
+
+
+def open_chat(chat_id):
+    remember_current_chat()
+    for chat in st.session_state.chats:
+        if chat["id"] == chat_id:
+            st.session_state.turns = chat["turns"]
+            st.session_state.current_chat_id = chat_id
+    st.session_state.editing = None
+    st.session_state.greeted = True
+    st.session_state.page = "chat"
+
+
 def render_sidebar():
     with st.sidebar:
         html(f"""
@@ -1528,14 +1579,27 @@ cover a question, ERGIT will say so.
 </p>
 """)
 
-        if st.session_state.page == "chat":
-            st.write("")
-            if st.button("New chat", icon=":material/add_comment:", key="new_chat",
-                         width="stretch"):
-                st.session_state.turns = []
-                st.session_state.editing = None
-                st.session_state.greeted = False
-                st.rerun()
+        st.write("")
+        if st.button("New chat", icon=":material/add_comment:", key="new_chat",
+                     width="stretch"):
+            start_new_chat()
+            st.rerun()
+
+        # Previous chats from this visit, newest first
+        if st.session_state.chats:
+            html('<div class="eyebrow" style="margin-top:1.2rem;">Recent chats</div>')
+            with st.container(key="history"):
+                for chat in reversed(st.session_state.chats):
+                    is_current = (chat["id"] == st.session_state.current_chat_id
+                                  and st.session_state.page == "chat")
+                    st.button(
+                        chat_title(chat),
+                        key=f"chat_{chat['id']}",
+                        icon=":material/chat_bubble:" if is_current else ":material/chat_bubble_outline:",
+                        type="primary" if is_current else "tertiary",
+                        width="stretch",
+                        on_click=open_chat, args=(chat["id"],)
+                    )
 
 
 # --------------------------------------------------
@@ -1775,6 +1839,7 @@ Manage app → Settings → Secrets. When running locally, add them to your .env
         version = new_version(question, by_voice, voice_heard if by_voice else None)
         version["needs_fix"] = by_voice
         st.session_state.turns.append({"versions": [version], "current": 0})
+        remember_current_chat()
         st.rerun()  # the new turn is answered in place on the next run
 
 
@@ -1904,6 +1969,11 @@ if "turns" not in st.session_state:
 
 if "editing" not in st.session_state:
     st.session_state.editing = None
+
+if "chats" not in st.session_state:
+    st.session_state.chats = []
+    st.session_state.current_chat_id = None
+    st.session_state.next_chat_id = 0
 
 if "user_name" not in st.session_state:
     st.session_state.user_name = None
