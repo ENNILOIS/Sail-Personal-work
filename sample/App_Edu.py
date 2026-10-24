@@ -307,6 +307,10 @@ box-shadow: 0 8px 20px rgba(37, 99, 235, 0.25);
 .typing span:nth-child(2) {animation-delay: 0.2s;}
 .typing span:nth-child(3) {animation-delay: 0.4s;}
 @keyframes blink {0%, 80%, 100% {opacity: 0.25; transform: translateY(0);} 40% {opacity: 1; transform: translateY(-3px);}}
+.suggest-label {font-size: 0.8rem !important; color: var(--muted) !important; margin: 0.6rem 0 0.1rem 0 !important;}
+.st-key-suggestions button {border-radius: 999px !important; padding: 0.3rem 0.85rem !important; min-height: 0 !important; font-size: 0.85rem !important; background: #F5F8FE !important; border: 1px solid var(--line) !important; box-shadow: none !important;}
+.st-key-suggestions button p {font-weight: 500 !important; font-size: 0.85rem !important;}
+.st-key-suggestions button:hover {border-color: var(--blue) !important; color: var(--blue) !important; background: #EEF4FF !important; transform: none !important;}
 .heard {font-size: 0.75rem !important; color: #C9DAFB !important; margin-top: 0.2rem !important;}
 
 /* Answer dashboard */
@@ -1666,10 +1670,11 @@ ERGIT is a student data science capstone project. Figures come from official pub
 # --------------------------------------------------
 
 SAMPLE_QUESTIONS = [
-    ("🏆", "Which LGAs have the greatest overall resource gaps?"),
-    ("👩🏾‍🏫", "Which LGAs need teachers most?"),
-    ("🚻", "How does Badagry compare with the toilet standard?"),
-    ("🎒", "Which school level is under the most pressure?")
+    (":material/leaderboard:", "Top 5 LGAs with the biggest resource gaps"),
+    (":material/person:", "Which LGAs need teachers most?"),
+    (":material/water_drop:", "How does Badagry compare with the toilet standard?"),
+    (":material/stacks:", "Which school level is under the most pressure?"),
+    (":material/show_chart:", "Teacher ratio trend 2016/17 to 2019/20"),
 ]
 
 
@@ -1718,6 +1723,16 @@ Manage app → Settings → Secrets. When running locally, add them to your .env
             st.session_state.greeted = True
         else:
             st.markdown(GREETING)
+
+        # Suggested questions: small chips under the greeting, gone after
+        # the first question
+        if not st.session_state.turns:
+            html('<p class="suggest-label">You could ask:</p>')
+            with st.container(horizontal=True, gap="small", key="suggestions"):
+                for i, (icon, sample) in enumerate(SAMPLE_QUESTIONS):
+                    if st.button(sample, icon=icon, key=f"sample_{i}"):
+                        st.session_state.pending_question = sample
+                        st.rerun()
 
     # Each turn = one question with all its versions (retries and edits)
     for t_index, turn in enumerate(st.session_state.turns):
