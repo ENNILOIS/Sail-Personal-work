@@ -1,5 +1,7 @@
 import os
 import re
+import time
+from html import escape
 import json
 
 import pandas as pd
@@ -38,6 +40,48 @@ def html(block):
     treat it as a code block."""
     cleaned = "\n".join(line.strip() for line in block.splitlines())
     st.markdown(cleaned, unsafe_allow_html=True)
+
+
+# Clean line icons used across the app (instead of emojis)
+ICON_PATHS = {
+    "teacher": '<circle cx="12" cy="7" r="3.5"/><path d="M5 21v-1.5A5.5 5.5 0 0 1 10.5 14h3a5.5 5.5 0 0 1 5.5 5.5V21"/>',
+    "classroom": '<path d="M3 21h18"/><path d="M5 21V10l7-5 7 5v11"/><path d="M10 21v-5h4v5"/><path d="M9 11h.01M15 11h.01"/>',
+    "toilet": '<path d="M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11z"/>',
+    "layers": '<path d="m12 3 9 5-9 5-9-5 9-5z"/><path d="m3 13 9 5 9-5"/>',
+    "bars": '<path d="M4 20V11"/><path d="M10 20V5"/><path d="M16 20v-6"/><path d="M21 20H3"/>',
+    "pie": '<circle cx="12" cy="12" r="9"/><path d="M12 3v9h9"/>',
+    "chat": '<path d="M21 12a8.5 8.5 0 0 1-12.4 7.5L3.5 21l1.4-4.7A8.5 8.5 0 1 1 21 12z"/>',
+    "collect": '<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/>',
+    "clean": '<path d="M3 5h18l-7 8v6l-4 2v-8z"/>',
+    "idea": '<path d="M9 18h6"/><path d="M10 21h4"/><path d="M12 3a6.5 6.5 0 0 0-3.8 11.8V17h7.6v-2.2A6.5 6.5 0 0 0 12 3z"/>',
+    "up": '<path d="M12 19V5"/><path d="m5 12 7-7 7 7"/>',
+    "down": '<path d="M12 5v14"/><path d="m5 12 7 7 7-7"/>',
+    "flat": '<path d="M5 12h14"/><path d="m13 6 6 6-6 6"/>',
+    "alert": '<path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4"/><path d="M12 17h.01"/>',
+    "flag": '<path d="M5 21V4"/><path d="M5 4h11l-2 4 2 4H5"/>',
+    "pin": '<circle cx="12" cy="10" r="2.8"/><path d="M12 21s7-6 7-11a7 7 0 0 0-14 0c0 5 7 11 7 11z"/>',
+    "peak": '<path d="m3 20 6-10 4 6 3-4 5 8H3z"/>',
+    "sum": '<path d="M18 5H6l6 7-6 7h12"/>',
+    "star": '<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3l-5.5 2.9 1-6.2L3 9.6l6.2-.9z"/>',
+    "dot": '<circle cx="12" cy="12" r="4"/>',
+    "ruler": '<path d="M3 17 17 3l4 4L7 21z"/><path d="m7.5 12.5 2 2"/><path d="m11 9 2 2"/><path d="m14.5 5.5 2 2"/>',
+    "target": '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>',
+    "spread": '<path d="M3 12h18"/><path d="m7 8-4 4 4 4"/><path d="m17 8 4 4-4 4"/>',
+    "column": '<path d="M6 20v-8"/><path d="M12 20V6"/><path d="M18 20v-11"/><path d="M3 20h18"/>',
+    "lollipop": '<path d="M4 6h10"/><path d="M4 12h14"/><path d="M4 18h7"/><circle cx="16" cy="6" r="2"/><circle cx="20" cy="12" r="2"/><circle cx="13" cy="18" r="2"/>',
+    "line": '<path d="M3 20h18"/><path d="m4 15 5-5 4 3 7-7"/>',
+    "file": '<path d="M14 3H6v18h12V7l-4-4z"/><path d="M14 3v4h4"/>',
+    "mic": '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/>',
+    "cap": '<path d="m2 9 10-5 10 5-10 5L2 9z"/><path d="M6 11v5c3 2.5 9 2.5 12 0v-5"/><path d="M22 9v6"/>',
+}
+
+
+def ic(name, color="currentColor", size=18):
+    """Return a small line icon as inline SVG."""
+    return (f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" '
+            f'stroke="{color}" stroke-width="1.9" stroke-linecap="round" '
+            f'stroke-linejoin="round" style="vertical-align:-0.2em;">'
+            f'{ICON_PATHS[name]}</svg>')
 
 
 LOGO_SVG = """
@@ -206,6 +250,7 @@ border-radius: 50%; background: rgba(250, 204, 21, 0.16);
 .cta h3, .cta p {position: relative; z-index: 1;}
 .cta h3 {color: #FFFFFF !important; font-size: 1.6rem; margin: 0;}
 .cta p {color: #DBE6FF !important; margin: 0.4rem 0 0 0;}
+.cta p.cta-for {font-size: 0.82rem; color: #B8C8F0 !important; margin-top: 0.8rem;}
 
 /* Buttons */
 .stButton > button {
@@ -227,7 +272,7 @@ box-shadow: 0 8px 20px rgba(250, 204, 21, 0.4); font-size: 1.05rem;
 [data-testid="stChatInput"] > div {border-color: transparent !important;}
 [data-testid="stTextInput"] input:focus {border-color: var(--blue) !important;}
 
-.footer-note {font-size: 0.8rem !important; color: var(--muted) !important; text-align: center; margin-top: 2.4rem;}
+.footer-note {font-size: 0.8rem !important; color: var(--muted) !important; text-align: center; margin-top: 3.2rem !important;}
 
 /* Chat page */
 .chat-hero {
@@ -257,6 +302,11 @@ box-shadow: 0 8px 20px rgba(37, 99, 235, 0.25);
 [class*="st-key-actions_"] {margin-top: -0.3rem; margin-bottom: 0.2rem;}
 [class*="st-key-actions_"] button {font-size: 0.82rem !important; color: var(--muted) !important; padding: 0.15rem 0.5rem !important; min-height: 0 !important; border-radius: 8px !important;}
 [class*="st-key-actions_"] button:hover {color: var(--blue) !important; background: #EEF4FF !important;}
+.typing {display: inline-flex; gap: 5px; padding: 0.5rem 0.2rem;}
+.typing span {width: 8px; height: 8px; border-radius: 50%; background: #93A4C3; animation: blink 1.2s infinite ease-in-out;}
+.typing span:nth-child(2) {animation-delay: 0.2s;}
+.typing span:nth-child(3) {animation-delay: 0.4s;}
+@keyframes blink {0%, 80%, 100% {opacity: 0.25; transform: translateY(0);} 40% {opacity: 1; transform: translateY(-3px);}}
 .heard {font-size: 0.75rem !important; color: #C9DAFB !important; margin-top: 0.2rem !important;}
 
 /* Answer dashboard */
@@ -394,6 +444,30 @@ def load_rag_components(api_key, embedding_api_key):
     )
 
     return vector_db, chat_model
+
+
+@st.cache_resource
+def get_fast_model(api_key):
+    """A small, very fast model for quick jobs (fixing voice questions,
+    building dashboard data), so the user waits less."""
+    return ChatOpenAI(
+        api_key=api_key,
+        base_url="https://api.groq.com/openai/v1",
+        model="llama-3.1-8b-instant",
+        temperature=0,
+        max_retries=0,
+        timeout=15
+    )
+
+
+def run_quick(prompt_template, values, chat_model):
+    """Try the fast model first; fall back to the main model if it fails."""
+    for model in (get_fast_model(api_key), chat_model):
+        try:
+            return (prompt_template | model | StrOutputParser()).invoke(values)
+        except Exception as e:
+            print(f"Quick model error: {type(e).__name__}: {e}")
+    return ""
 
 
 # --------------------------------------------------
@@ -600,12 +674,12 @@ def retrieve_context(question, vector_db, general_retriever):
 # --------------------------------------------------
 
 CHART_TYPES = {
-    "bar": ("📊", "Ranking bar chart"),
-    "column": ("📶", "Column chart"),
-    "lollipop": ("🍭", "Lollipop ranking"),
-    "pie": ("🍩", "Donut chart"),
-    "line": ("📈", "Trend line"),
-    "compare": ("🎯", "Actual vs UBE standard"),
+    "bar": ("bars", "Ranking bar chart"),
+    "column": ("column", "Column chart"),
+    "lollipop": ("lollipop", "Dot ranking"),
+    "pie": ("pie", "Donut chart"),
+    "line": ("line", "Trend line"),
+    "compare": ("target", "Actual vs UBE standard"),
 }
 
 # Words a user may type to ask for a chart type
@@ -710,9 +784,7 @@ def make_chart(question, answer_text, chat_model):
     if len(re.findall(r"\d+(?:\.\d+)?", answer_text)) < 2:
         return None
     try:
-        raw = (chart_prompt | chat_model | StrOutputParser()).invoke(
-            {"question": question, "answer": answer_text}
-        )
+        raw = run_quick(chart_prompt, {"question": question, "answer": answer_text}, chat_model)
         return parse_chart_json(raw)
     except Exception as e:
         print(f"Chart error: {type(e).__name__}: {e}")
@@ -914,8 +986,13 @@ def draw_chart(chart):
     )
 
 
+TILE_COLOURS = {"#FEE2E2": "#DC2626", "#D1FAE5": "#059669", "#DBEAFE": "#2563EB",
+                "#FEF3C7": "#B45309", "#EDE9FE": "#7C3AED"}
+
+
 def tile(label, value, sub, bg, icon):
-    return (f'<div class="kpi"><div class="kpi-icon" style="background:{bg};">{icon}</div>'
+    svg = ic(icon, TILE_COLOURS.get(bg, "#2563EB"), 18)
+    return (f'<div class="kpi"><div class="kpi-icon" style="background:{bg};">{svg}</div>'
             f'<div><div class="kpi-label">{label}</div><div class="kpi-value">{value}</div>'
             f'<div class="kpi-sub">{sub}</div></div></div>')
 
@@ -931,20 +1008,20 @@ def kpi_tiles(chart):
         first, last = df.iloc[0], df.iloc[-1]
         change = last["value"] - first["value"]
         pct = change / first["value"] * 100 if first["value"] else 0
-        arrow = "⬆️" if change > 0 else "⬇️" if change < 0 else "➡️"
+        arrow = "up" if change > 0 else "down" if change < 0 else "flat"
         tiles = [
-            tile("Start", fmt(first["value"]), first["label"], "#DBEAFE", "🏁"),
-            tile("Latest", fmt(last["value"]), last["label"], "#EDE9FE", "📍"),
+            tile("Start", fmt(first["value"]), first["label"], "#DBEAFE", "flag"),
+            tile("Latest", fmt(last["value"]), last["label"], "#EDE9FE", "pin"),
             tile("Change", f"{change:+,.1f}", f"{pct:+.1f}% overall", "#FEE2E2" if change > 0 else "#D1FAE5", arrow),
-            tile("Peak", fmt(top["value"]), top["label"], "#FEF3C7", "⛰️"),
+            tile("Peak", fmt(top["value"]), top["label"], "#FEF3C7", "peak"),
         ]
     elif kind == "pie":
         total = df["value"].sum()
         tiles = [
-            tile("Total", fmt(total), chart.get("value_name", ""), "#DBEAFE", "🧮"),
-            tile("Largest share", f"{top['value'] / total * 100:.0f}%", top["label"], "#FEF3C7", "🥇"),
-            tile("Smallest share", f"{low['value'] / total * 100:.0f}%", low["label"], "#D1FAE5", "🔹"),
-            tile("Parts", str(len(df)), "in this chart", "#EDE9FE", "🍩"),
+            tile("Total", fmt(total), chart.get("value_name", ""), "#DBEAFE", "sum"),
+            tile("Largest share", f"{top['value'] / total * 100:.0f}%", top["label"], "#FEF3C7", "star"),
+            tile("Smallest share", f"{low['value'] / total * 100:.0f}%", low["label"], "#D1FAE5", "dot"),
+            tile("Parts", str(len(df)), "in this chart", "#EDE9FE", "pie"),
         ]
     elif kind == "compare":
         df["std"] = df["standard"]
@@ -952,25 +1029,25 @@ def kpi_tiles(chart):
         worst = df.loc[df["gap"].idxmax()]
         above = int((df["gap"] > 0).sum())
         tiles = [
-            tile("Above standard", f"{above}/{len(df)}", "measures", "#FEE2E2", "⚠️"),
-            tile("Biggest gap", f"{worst['gap']:+,.1f}", worst["label"], "#FEF3C7", "📏"),
-            tile("Worst value", fmt(worst["value"]), f"Standard: {fmt(worst['std'])}", "#DBEAFE", "🔺"),
-            tile("Measures", str(len(df)), "compared", "#EDE9FE", "🎯"),
+            tile("Above standard", f"{above}/{len(df)}", "measures", "#FEE2E2", "alert"),
+            tile("Biggest gap", f"{worst['gap']:+,.1f}", worst["label"], "#FEF3C7", "ruler"),
+            tile("Worst value", fmt(worst["value"]), f"Standard: {fmt(worst['std'])}", "#DBEAFE", "up"),
+            tile("Measures", str(len(df)), "compared", "#EDE9FE", "target"),
         ]
     else:
         standard = chart.get("standard")
         tiles = [
-            tile("Highest", fmt(top["value"]), top["label"], "#FEE2E2", "🔺"),
-            tile("Lowest", fmt(low["value"]), low["label"], "#D1FAE5", "🔻"),
-            tile("Average", fmt(df["value"].mean()), f"{len(df)} compared", "#DBEAFE", "📊"),
+            tile("Highest", fmt(top["value"]), top["label"], "#FEE2E2", "up"),
+            tile("Lowest", fmt(low["value"]), low["label"], "#D1FAE5", "down"),
+            tile("Average", fmt(df["value"].mean()), f"{len(df)} compared", "#DBEAFE", "bars"),
         ]
         if standard:
             above = int((df["value"] > standard).sum())
             tiles.append(tile("Above standard", f"{above}/{len(df)}",
-                              f"Standard: {fmt(standard)}", "#FEF3C7", "⚠️"))
+                              f"Standard: {fmt(standard)}", "#FEF3C7", "alert"))
         else:
             spread = top["value"] - low["value"]
-            tiles.append(tile("Spread", fmt(spread), "highest − lowest", "#EDE9FE", "↔️"))
+            tiles.append(tile("Spread", fmt(spread), "highest − lowest", "#EDE9FE", "spread"))
 
     html(f'<div class="kpi-row">{"".join(tiles)}</div>')
 
@@ -1032,7 +1109,7 @@ def show_assistant_message(message, index):
 
     if not chart:
         st.markdown(message["content"])
-        html(f'<span class="source-tag">📄 {source}</span>')
+        html(f'<span class="source-tag">{ic("file", "#1E3A8A", 13)} {source}</span>')
         return
 
     icon, chart_name = CHART_TYPES.get(chart["type"], CHART_TYPES["bar"])
@@ -1044,7 +1121,7 @@ def show_assistant_message(message, index):
 <div class="dash-eyebrow">Live dashboard · {chart.get("title", "")}</div>
 <div class="dash-headline">{chart.get("headline", "")}</div>
 </div>
-<span class="source-tag">📄 {source}</span>
+<span class="source-tag">{ic("file", "#1E3A8A", 13)} {source}</span>
 </div>
 ''')
 
@@ -1052,7 +1129,7 @@ def show_assistant_message(message, index):
 
     html(f'''
 <div class="dash-divider"></div>
-<div class="chart-chip">{icon} {chart_name} <span>· {chosen}</span></div>
+<div class="chart-chip">{ic(icon, "#1E3A8A", 15)} {chart_name} <span>· {chosen}</span></div>
 ''')
 
     kpi_tiles(chart)
@@ -1194,8 +1271,10 @@ def quick_fix(text):
 def understand_voice(heard, chat_model):
     heard = quick_fix(heard) if heard else heard
     try:
-        fixed = (voice_fix_prompt | chat_model | StrOutputParser()).invoke({"heard": heard})
+        fixed = run_quick(voice_fix_prompt, {"heard": heard}, chat_model)
         fixed = fixed.strip().strip('"').strip()
+        if len(fixed) > 3 * len(heard) + 40:   # it rambled: keep what was heard
+            fixed = heard
         return fixed or heard
     except Exception:
         return heard
@@ -1436,14 +1515,23 @@ A data tool that ranks Lagos LGAs by how urgently their public schools
 need teachers, classrooms and toilets.
 </p>
 <div class="eyebrow" style="margin-top:1.2rem;">UBE minimum standards</div>
-<div class="side-std">👩🏾‍🏫 <span><b>35</b> students per teacher</span></div>
-<div class="side-std">🏫 <span><b>35</b> students per classroom</span></div>
-<div class="side-std">🚻 <span><b>30</b> students per toilet</span></div>
+<div class="side-std">{ic("teacher", "#2563EB")} <span><b>35</b> students per teacher</span></div>
+<div class="side-std">{ic("classroom", "#2563EB")} <span><b>35</b> students per classroom</span></div>
+<div class="side-std">{ic("toilet", "#2563EB")} <span><b>30</b> students per toilet</span></div>
 <p style="font-size:0.8rem; color:#5B6680; margin-top:1.2rem; line-height:1.5;">
 Answers come only from the project's documents. If the data does not
 cover a question, ERGIT will say so.
 </p>
 """)
+
+        if st.session_state.page == "chat":
+            st.write("")
+            if st.button("New chat", icon=":material/add_comment:", key="new_chat",
+                         width="stretch"):
+                st.session_state.turns = []
+                st.session_state.editing = None
+                st.session_state.greeted = False
+                st.rerun()
 
 
 # --------------------------------------------------
@@ -1470,50 +1558,27 @@ Here is how many of the 20 LGAs fall short.</p>
 """)
 
     c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        html("""
+    cards = [
+        (c1, "toilet", "#FEF3C7", "#B45309", "17", "/20", "LGAs lack toilets", 85, "#F59E0B", "Standard: 30 per toilet"),
+        (c2, "classroom", "#FEE2E2", "#DC2626", "13", "/20", "LGAs lack classrooms", 65, "#F97066", "Standard: 35 per classroom"),
+        (c3, "teacher", "#DBEAFE", "#2563EB", "8", "/20", "LGAs lack teachers", 40, "#2563EB", "Standard: 35 per teacher"),
+        (c4, "layers", "#D1FAE5", "#059669", "JSS", "", "Most pressured level", 100, "#10B981", "70.6 students per classroom"),
+    ]
+    for col, icon, bg, fg, num, small, label, width, bar, note in cards:
+        with col:
+            html(f"""
 <div class="stat">
-<div class="stat-top"><div class="stat-icon" style="background:#FEE2E2;">🏫</div></div>
-<div class="stat-num">20<small>/20</small></div>
-<div class="stat-label">LGAs lack classrooms</div>
-<div class="bar"><span style="width:100%; background:#F97066;"></span></div>
-<div class="stat-note">Standard: 35 per classroom</div>
-</div>
-""")
-    with c2:
-        html("""
-<div class="stat">
-<div class="stat-top"><div class="stat-icon" style="background:#FEF3C7;">🚻</div></div>
-<div class="stat-num">19<small>/20</small></div>
-<div class="stat-label">LGAs lack toilets</div>
-<div class="bar"><span style="width:95%; background:#F59E0B;"></span></div>
-<div class="stat-note">Standard: 30 per toilet</div>
-</div>
-""")
-    with c3:
-        html("""
-<div class="stat">
-<div class="stat-top"><div class="stat-icon" style="background:#DBEAFE;">👩🏾‍🏫</div></div>
-<div class="stat-num">9<small>/20</small></div>
-<div class="stat-label">LGAs lack teachers</div>
-<div class="bar"><span style="width:45%; background:#2563EB;"></span></div>
-<div class="stat-note">Standard: 35 per teacher</div>
-</div>
-""")
-    with c4:
-        html("""
-<div class="stat">
-<div class="stat-top"><div class="stat-icon" style="background:#D1FAE5;">🎒</div></div>
-<div class="stat-num">JSS</div>
-<div class="stat-label">Most pressured level</div>
-<div class="bar"><span style="width:100%; background:#10B981;"></span></div>
-<div class="stat-note">Junior secondary schools</div>
+<div class="stat-top"><div class="stat-icon" style="background:{bg};">{ic(icon, fg, 20)}</div></div>
+<div class="stat-num">{num}<small>{small}</small></div>
+<div class="stat-label">{label}</div>
+<div class="bar"><span style="width:{width}%; background:{bar};"></span></div>
+<div class="stat-note">{note}</div>
 </div>
 """)
 
     html("""
 <p style="font-size:0.8rem; color:#5B6680; margin-top:0.8rem;">
-Public Primary, JSS and SSS schools. Sources: DNEMIS Annual School Census 2024/25; Lagos Bureau of Statistics.
+Public Primary, JSS and SSS schools combined for each LGA. Sources: DNEMIS Annual School Census 2024/25; Lagos Bureau of Statistics.
 </p>
 <div class="gap"></div>
 """)
@@ -1529,25 +1594,25 @@ so decision-makers can see where support should go first.</p>
 
     f1, f2, f3 = st.columns(3)
     with f1:
-        html("""
+        html(f"""
 <div class="feature">
-<div class="feature-icon" style="background:#DBEAFE;">🏆</div>
+<div class="feature-icon" style="background:#DBEAFE;">{ic("bars", "#2563EB", 24)}</div>
 <div class="feature-title">Ranks every LGA</div>
 <div class="feature-text">Compares all 20 Lagos LGAs with the national standards for teachers, classrooms and toilets, and ranks them by need.</div>
 </div>
 """)
     with f2:
-        html("""
+        html(f"""
 <div class="feature">
-<div class="feature-icon" style="background:#FEF3C7;">📊</div>
+<div class="feature-icon" style="background:#FEF3C7;">{ic("pie", "#B45309", 24)}</div>
 <div class="feature-title">Draws live charts</div>
-<div class="feature-text">Every answer with figures comes with its own chart. Switch between the written answer and a bar or pie chart in one click.</div>
+<div class="feature-text">Every answer with figures comes with its own live dashboard, and ERGIT picks the chart that fits the question best.</div>
 </div>
 """)
     with f3:
-        html("""
+        html(f"""
 <div class="feature">
-<div class="feature-icon" style="background:#D1FAE5;">💬</div>
+<div class="feature-icon" style="background:#D1FAE5;">{ic("chat", "#059669", 24)}</div>
 <div class="feature-title">Answers your questions</div>
 <div class="feature-text">An AI assistant explains the results in plain English, using only verified data, and shows its source.</div>
 </div>
@@ -1561,30 +1626,14 @@ so decision-makers can see where support should go first.</p>
 <div class="section-title">Four steps, <span class="hl">one clear picture</span></div>
 <div style="height:1rem;"></div>
 <div class="steps">
-<div class="step"><div class="step-num">1</div><div class="step-title">📥 Collect</div>
+<div class="step"><div class="step-num">1</div><div class="step-title">Collect</div>
 <div class="step-text">Official data from DNEMIS and the Lagos Bureau of Statistics.</div></div>
-<div class="step"><div class="step-num">2</div><div class="step-title">🧹 Clean &amp; compare</div>
+<div class="step"><div class="step-num">2</div><div class="step-title">Clean &amp; compare</div>
 <div class="step-text">Checked, cleaned and measured against the UBE standards.</div></div>
-<div class="step"><div class="step-num">3</div><div class="step-title">🏆 Rank</div>
+<div class="step"><div class="step-num">3</div><div class="step-title">Rank</div>
 <div class="step-text">LGAs ranked by how far they are from the standards.</div></div>
-<div class="step"><div class="step-num">4</div><div class="step-title">💡 Explain &amp; chart</div>
+<div class="step"><div class="step-num">4</div><div class="step-title">Explain &amp; chart</div>
 <div class="step-text">The AI assistant answers with sources and a live chart.</div></div>
-</div>
-<div class="gap"></div>
-""")
-
-    # Who it is for
-    html("""
-<div class="eyebrow">Who it is for</div>
-<div class="section-title">Built for people who <span class="hl">decide and fund</span></div>
-<div style="height:0.6rem;"></div>
-<div>
-<span class="chip">🏛️ Lagos SUBEB</span>
-<span class="chip">📚 Ministry of Basic &amp; Secondary Education</span>
-<span class="chip">🇳🇬 UBEC</span>
-<span class="chip">🤝 NGOs</span>
-<span class="chip">💼 Donors &amp; CSR teams</span>
-<span class="chip">🔬 Researchers</span>
 </div>
 <div class="gap"></div>
 """)
@@ -1596,6 +1645,7 @@ so decision-makers can see where support should go first.</p>
 <div class="cta">
 <h3>Ready to explore the data?</h3>
 <p>Ask ERGIT which LGAs need teachers, classrooms or toilets most.</p>
+<p class="cta-for">Built for Lagos SUBEB, the Ministry of Basic &amp; Secondary Education, UBEC, NGOs, donors and researchers.</p>
 </div>
 """)
     with right:
@@ -1626,26 +1676,9 @@ SAMPLE_QUESTIONS = [
 def render_chat():
     topbar()
 
-    nav_left, nav_right = st.columns([1, 1])
-    with nav_left:
-        if st.button("←  Back to home"):
-            st.session_state.page = "home"
-            st.rerun()
-    with nav_right:
-        if st.session_state.turns:
-            if st.button("🧹 Clear chat", key="clear_chat"):
-                st.session_state.turns = []
-                st.session_state.editing = None
-                st.rerun()
-
-    html("""
-<div class="chat-hero">
-<div class="eyebrow">ERGIT Assistant</div>
-<h2 class="jakarta">Let's explore Lagos schools together 🎓</h2>
-<p>Ask me about teachers, classrooms, toilets and resource gaps across the 20 Lagos LGAs.</p>
-</div>
-<div style="height:1rem;"></div>
-""")
+    if st.button("Back to home", icon=":material/arrow_back:"):
+        st.session_state.page = "home"
+        st.rerun()
 
     if not api_key or not embedding_api_key:
         html("""
@@ -1672,49 +1705,19 @@ Manage app → Settings → Secrets. When running locally, add them to your .env
         }
     )
 
-    # Friendly welcome, always the first message
-    with st.chat_message("assistant", avatar="🎓"):
-        name = st.session_state.user_name
-        if name is None and not st.session_state.name_skipped:
-            st.markdown(
-                "Hi there 👋 I'm **ERGIT**, your friendly guide to Lagos public "
-                "school data.\n\nBefore we start, what should I call you?"
+    # ERGIT says hello first, like a chatbot (typed out the first time only)
+    with st.chat_message("assistant", avatar=":material/school:"):
+        if not st.session_state.greeted:
+            bubble = st.empty()
+            bubble.markdown(
+                '<div class="typing"><span></span><span></span><span></span></div>',
+                unsafe_allow_html=True
             )
-            with st.form("name_form", clear_on_submit=True, border=False):
-                c1, c2, c3 = st.columns([3, 1.2, 1])
-                with c1:
-                    typed_name = st.text_input(
-                        "Your name", placeholder="Type your name...",
-                        label_visibility="collapsed"
-                    )
-                with c2:
-                    go = st.form_submit_button("Let's go 👋", type="primary", width="stretch")
-                with c3:
-                    skip = st.form_submit_button("Skip", width="stretch")
-            if go and typed_name.strip():
-                st.session_state.user_name = typed_name.strip().title()[:30]
-                st.rerun()
-            if skip:
-                st.session_state.name_skipped = True
-                st.rerun()
+            time.sleep(1.3)          # "ERGIT is typing..."
+            bubble.write_stream(type_out(GREETING))
+            st.session_state.greeted = True
         else:
-            hello = f"Nice to meet you, **{name}**! 😊" if name else "Welcome! 😊"
-            st.markdown(
-                f"{hello} I can tell you which Lagos LGAs need teachers, "
-                "classrooms or toilets most, and every answer with figures "
-                "comes with its own **live dashboard**.\n\n"
-                "Type a question, tap the 🎤 to speak, or pick one below."
-            )
-
-    if not st.session_state.turns:
-        html('<p class="eyebrow" style="margin-top:0.4rem;">Try a question</p>')
-        q1, q2 = st.columns(2)
-        for i, (icon, sample) in enumerate(SAMPLE_QUESTIONS):
-            column = q1 if i % 2 == 0 else q2
-            with column:
-                if st.button(f"{icon}  {sample}", key=f"sample_{i}", width="stretch"):
-                    st.session_state.pending_question = sample
-                    st.rerun()
+            st.markdown(GREETING)
 
     # Each turn = one question with all its versions (retries and edits)
     for t_index, turn in enumerate(st.session_state.turns):
@@ -1734,12 +1737,12 @@ Manage app → Settings → Secrets. When running locally, add them to your .env
         typed_question = (submission.text or "").strip() or None
         recording = submission.get("audio") if hasattr(submission, "get") else None
         if recording is not None and not typed_question:
-            with st.spinner("🎤 Listening to your question..."):
+            with st.spinner("Listening..."):
                 try:
                     heard = transcribe(recording)
                     if heard:
                         voice_heard = heard
-                        voice_question = understand_voice(heard, chat_model)
+                        voice_question = quick_fix(heard)  # shown at once, tidied up next
                 except Exception as e:
                     st.error("Sorry, the voice question could not be understood.")
                     st.code(f"{type(e).__name__}: {e}")
@@ -1754,16 +1757,25 @@ Manage app → Settings → Secrets. When running locally, add them to your .env
 
     if question:
         by_voice = bool(voice_question) and not typed_question
-        st.session_state.turns.append({
-            "versions": [new_version(question, by_voice, voice_heard if by_voice else None)],
-            "current": 0
-        })
+        version = new_version(question, by_voice, voice_heard if by_voice else None)
+        version["needs_fix"] = by_voice
+        st.session_state.turns.append({"versions": [version], "current": 0})
         st.rerun()  # the new turn is answered in place on the next run
 
 
 # --------------------------------------------------
 # 11b. Retry, edit and versions for each question
 # --------------------------------------------------
+
+GREETING = "Hi, welcome to **ERGIT** 👋 How can I help you today?"
+
+
+def type_out(text):
+    """Show the greeting word by word, like someone typing."""
+    for word in text.split(" "):
+        yield word + " "
+        time.sleep(0.09)
+
 
 def new_version(question, voice=False, heard=None):
     return {"question": question, "voice": voice, "heard": heard, "answer": None}
@@ -1812,10 +1824,13 @@ def render_turn(t_index, turn, vector_db, chat_model, general_retriever):
             st.rerun()
     else:
         with st.chat_message("user", avatar="🧑🏾"):
-            st.markdown(("🎤 " if version["voice"] else "") + version["question"])
+            if version["voice"]:
+                html(f'<p>{ic("mic", "#FFFFFF", 16)} {escape(version["question"])}</p>')
+            else:
+                st.markdown(version["question"])
             heard = version.get("heard")
             if heard and heard.strip().lower() != version["question"].strip().lower():
-                html(f'<p class="heard">I heard: “{heard}”</p>')
+                html(f'<p class="heard">I heard: “{escape(heard)}”</p>')
 
         # ---- small action row under the question ----
         busy = version["answer"] is None
@@ -1837,8 +1852,12 @@ def render_turn(t_index, turn, vector_db, chat_model, general_retriever):
                       on_click=start_edit, args=(t_index,))
 
     # ---- the answer (worked out here, in place, the first time) ----
-    with st.chat_message("assistant", avatar="🎓"):
+    with st.chat_message("assistant", avatar=":material/school:"):
         if version["answer"] is None:
+            if version.get("needs_fix"):
+                with st.spinner("Making sure I understood you..."):
+                    version["question"] = understand_voice(version["heard"], chat_model)
+                    version["needs_fix"] = False
             with st.spinner("Searching the education documents..."):
                 try:
                     answer, source_used, chart = answer_question(
@@ -1874,8 +1893,8 @@ if "editing" not in st.session_state:
 if "user_name" not in st.session_state:
     st.session_state.user_name = None
 
-if "name_skipped" not in st.session_state:
-    st.session_state.name_skipped = False
+if "greeted" not in st.session_state:
+    st.session_state.greeted = False
 
 render_sidebar()
 
